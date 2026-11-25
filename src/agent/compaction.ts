@@ -9,6 +9,7 @@ import { activeBranch, appendEntry, putEntry } from '@src/store/conversations';
 import type { Entry, EntryOf, LedgerLine, MessagePart } from '@src/store/types';
 import { contextChars, groupResults, messageEntries } from './context';
 import { NOTE_LABEL, note } from './records';
+import { CC_ACTION, CC_READ } from './command-center';
 import { CONTRACT } from './prompt';
 import { learnFrom, turnEffort } from './run';
 import type { ResolvedModel } from './run';
@@ -142,6 +143,15 @@ export function ledgerLines(groups: Unit[], turns: Map<string, number>): LedgerL
           ...base,
           kind: 'handover',
           text: `${tab}${p.toolName}${target}: ${reason ? `${reason} step ` : ''}${outcome}`,
+        });
+      } else if (p.toolName === CC_READ || p.toolName === CC_ACTION) {
+        // A Command Center call: the tool it named (one of Command Center's own names, quoted), never its arguments. A
+        // change is a write, so it is never merged away.
+        const outcome = /declined/.test(out.text) ? 'declined by the user' : out.isError ? 'error' : 'done';
+        lines.push({
+          ...base,
+          kind: p.toolName === CC_READ ? 'read' : /declined/.test(out.text) ? 'declined' : 'write',
+          text: `Command Center ${quote(String(args.tool ?? ''), 80)}: ${outcome}`,
         });
       } else if (code === 'USER_DECLINED') {
         lines.push({ ...base, kind: 'declined', text: `${tab}${p.toolName}${target}: declined by the user` });

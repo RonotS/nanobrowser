@@ -22,7 +22,7 @@ import { HistoryDrawer } from './History';
 import { Cards, containsCardNumber } from './Cards';
 import { NoticeCard } from './NoticeCard';
 import { WhatsNewCard, useWhatsNew } from './WhatsNewCard';
-import { RatingCard, ratingMovedOn, useRatingCard } from './RatingCard';
+import { ratingMovedOn, useRatingCard } from './RatingCard';
 import { TabBar } from './TabBar';
 import { QueueList, RunBar } from './RunControls';
 import type { MessageKey } from '@src/ui/i18n';
@@ -32,17 +32,26 @@ import { installTestHook } from './test-hook';
 import type { SavedShortcut } from '@src/store/shortcuts';
 import { useShortcuts } from '@src/ui/shortcuts';
 import { AutoNotice } from '@src/ui/auto-notice';
-import { HistoryIcon, LogoMark, NewChatIcon, SettingsIcon } from '@src/ui/icons';
-import { websiteUrl } from '@src/ui/links';
+import { HistoryIcon, LogoMark, NewChatIcon, SettingsIcon, VoiceIcon } from '@src/ui/icons';
+import { VoiceBar } from './VoiceBar';
+import {
+  commandCenterFetch,
+  commandCenterStorage,
+  commandCenterUrl,
+  signInToCommandCenter,
+} from '@src/store/command-center';
+import { commandCenterBaseUrl } from '@src/store/command-center-providers';
+import type { TranscriptionSpec } from '@src/llm/transcribe';
 
 const NO_PROVIDERS: ProviderConfig[] = [];
 const NO_KEYS: Record<string, string> = {};
 
 /** The starters a new conversation offers when no shortcut is pinned: a short label and the text it sends. */
+// Company tasks: they lean on Command Center, which is what sets the AI apart from a plain browser agent.
 const STARTERS = [
-  { label: 'panel.starter.star', text: 'panel.starter.starText' },
+  { label: 'panel.starter.clients', text: 'panel.starter.clientsText' },
+  { label: 'panel.starter.sop', text: 'panel.starter.sopText' },
   { label: 'panel.starter.summarize', text: 'panel.starter.summarizeText' },
-  { label: 'panel.starter.news', text: 'panel.starter.newsText' },
 ] as const;
 
 /**
@@ -73,12 +82,25 @@ export function App() {
   const providersRead = useSyncExternalStore(providersStorage.subscribe, () => providersStorage.getSnapshot() !== null);
   const apiKeys = useStorage(keysStorage, NO_KEYS);
   const whatsNew = useWhatsNew();
-  // Voice input: the panel sends the recording to the chosen voice model's provider, with its key.
-  const voice = voiceSetup(settings, providers, apiKeys);
+  // Voice input: through Command Center's transcription model when signed in (the company's key, added by Command
+  // Center), else the voice model chosen in Settings with its own key.
+  const commandCenter = useStorage(commandCenterStorage, null);
+  const ccTranscription = commandCenter?.extras?.voice.transcription;
+  const voice: TranscriptionSpec | null = ccTranscription
+    ? {
+        kind: 'openai',
+        modelName: ccTranscription.name,
+        apiKey: 'command-center',
+        baseUrl: commandCenterBaseUrl(commandCenter.url, 'openai'),
+      }
+    : voiceSetup(settings, providers, apiKeys);
   const transcribe = voice
     ? (audio: Uint8Array) => {
         client?.send({ type: 'voice-used' });
-        return transcribeAudio(voice, audio, { language: voiceLanguage(settings.dictationLanguage) });
+        return transcribeAudio(voice, audio, {
+          language: voiceLanguage(settings.dictationLanguage),
+          ...(ccTranscription ? { fetch: commandCenterFetch } : {}),
+        });
       }
     : null;
   const [client, setClient] = useState<PanelClient | null>(null);
@@ -88,6 +110,8 @@ export function App() {
   const [draftMode, setDraftMode] = useState<PermissionMode | null>(null);
   const [draftPair, setDraftPair] = useState<LivePair | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  /** The voice agent's bar is open. */
+  const [voiceOpen, setVoiceOpen] = useState(false);
   const shortcuts = useShortcuts();
   const [autoNotice, setAutoNotice] = useState(false);
   /** A message held back because it looks like a card number. */
@@ -362,9 +386,9 @@ export function App() {
       {/* The header has no field of its own, so it is part of the panel; a line under it only above a conversation. */}
       <header
         className={`flex items-center gap-1 border-b px-2 py-1.5 ${empty && state.loaded ? 'border-transparent' : 'border-nb-border/60'}`}>
-        {/* The mark opens the website in a new tab. */}
+        {/* The mark opens Command Center in a new tab. */}
         <a
-          href={websiteUrl('/', 'side-panel')}
+          href={commandCenterUrl()}
           target="_blank"
           rel="noreferrer"
           title={t('panel.website')}
@@ -386,6 +410,12 @@ export function App() {
           onClick={() => setHistoryOpen(true)}>
           <HistoryIcon />
         </IconButton>
+        {/* Talk: the voice agent, when Command Center offers a realtime voice. */}
+        {commandCenter?.extras?.voice.agents.length ? (
+          <IconButton label={t('voice.title')} onClick={() => setVoiceOpen(open => !open)}>
+            <VoiceIcon />
+          </IconButton>
+        ) : null}
         <IconButton label={t('panel.settings')} onClick={() => void chrome.runtime.openOptionsPage()}>
           <SettingsIcon />
         </IconButton>
@@ -505,6 +535,21 @@ export function App() {
           else setPendingTabs(tabs => tabs.filter(p => p.tabId !== tabId));
         }}
       />
+      {voiceOpen && commandCenter ? (
+        <VoiceBar
+          connection={commandCenter}
+          status={state.status}
+          lastReply={
+            [...state.entries].reverse().flatMap(e => (e.kind === 'assistant' && e.text.trim() ? [e.text] : []))[0] ??
+            null
+          }
+          send={text => sendMessage(text)}
+          stopTask={() => {
+            if (client && state.conversationId) client.send({ type: 'stop', conversationId: state.conversationId });
+          }}
+          onClose={() => setVoiceOpen(false)}
+        />
+      ) : null}
       <Composer
         active={active}
         mode={mode}
@@ -514,9 +559,9 @@ export function App() {
         history={history}
         notice={
           <>
-            {/* The What's new card comes first; the notices below still show under it. The rating card waits for it (useRatingCard). */}
+            {/* The What's new card comes first; the notices below still show under it. The store-rating card is not shown:
+                the AI is the company's own tool, not in a store. */}
             {whatsNew ? <WhatsNewCard release={whatsNew} /> : null}
-            {ratingCard ? <RatingCard /> : null}
             {attachError ? (
               <p className="text-xs text-amber-700 dark:text-amber-300" role="alert">
                 {attachError}
@@ -528,7 +573,11 @@ export function App() {
                 title={t('composer.needModelTitle')}
                 action={{
                   label: t('composer.setUpModel'),
-                  run: () => void chrome.tabs.create({ url: chrome.runtime.getURL('/options.html#providers') }),
+                  // Signs in to Command Center from here; when that fails, Settings shows the reason and the button.
+                  run: () =>
+                    void signInToCommandCenter().catch(
+                      () => void chrome.tabs.create({ url: chrome.runtime.getURL('/options.html#providers') }),
+                    ),
                 }}>
                 {t('composer.needModel')}
               </NoticeCard>

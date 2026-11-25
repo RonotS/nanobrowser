@@ -27,6 +27,8 @@ export const REQUIRED_PERMISSIONS = [
   'offscreen',
   'contextMenus',
   'scripting',
+  // Signing in to Command Center: chrome.identity.launchWebAuthFlow. It adds no install warning.
+  'identity',
 ] as const satisfies readonly chrome.runtime.ManifestPermission[];
 
 export interface PermissionLists {

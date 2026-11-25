@@ -3,39 +3,39 @@
 @tailwind utilities;
 
 /*
- * The brand (the Nanobrowser brandbook). Primary #0073DC and sky #19C2FF on a pale sky canvas in light; a deep navy
- * canvas in dark. Text colours meet WCAG AA on the canvas, the surfaces and the cards. Fonts are the system's: sans for
- * the interface, and the system's serif for answers, as in Claude in Chrome's side panel.
+ * The brand: Kinetic Scaling's, as Command Center uses it. Blue #2563EB and cyan #06B6D4 on a pale canvas in light;
+ * Command Center's navy (#0a0e27 void, #0f1538 space) in dark. Text colours meet WCAG AA on the canvas, the surfaces
+ * and the cards. Fonts are the system's: sans for the interface, and the system's serif for answers.
  */
 :root {
-  --nb-canvas: 250 251 253;
+  --nb-canvas: 248 250 253;
   --nb-bg: 255 255 255;
-  --nb-fg: 15 27 45;
-  --nb-muted: 91 107 130;
-  --nb-border: 214 227 240;
-  --nb-surface: 234 244 252;
-  --nb-accent: 0 115 220;
-  --nb-accent-strong: 0 95 184;
-  --nb-sky: 25 194 255;
-  --nb-link: 0 104 201;
+  --nb-fg: 10 14 39;
+  --nb-muted: 74 94 115;
+  --nb-border: 212 224 238;
+  --nb-surface: 232 242 252;
+  --nb-accent: 37 99 235;
+  --nb-accent-strong: 29 78 216;
+  --nb-sky: 6 182 212;
+  --nb-link: 29 78 216;
   --nb-auto: 180 83 9;
-  --nb-shadow: 30 70 150;
+  --nb-shadow: 15 21 56;
   color-scheme: light;
 }
 
 .dark {
-  --nb-canvas: 10 18 32;
-  --nb-bg: 17 29 50;
-  --nb-fg: 238 244 255;
-  --nb-muted: 148 166 192;
-  --nb-border: 40 58 88;
-  --nb-surface: 26 42 69;
-  --nb-accent: 0 115 220;
-  --nb-accent-strong: 26 132 232;
-  --nb-sky: 25 194 255;
-  --nb-link: 92 176 255;
-  --nb-auto: 251 191 36;
-  --nb-shadow: 0 8 24;
+  --nb-canvas: 10 14 39;
+  --nb-bg: 15 21 56;
+  --nb-fg: 255 255 255;
+  --nb-muted: 184 197 214;
+  --nb-border: 34 52 92;
+  --nb-surface: 24 34 80;
+  --nb-accent: 37 99 235;
+  --nb-accent-strong: 59 130 246;
+  --nb-sky: 6 182 212;
+  --nb-link: 103 232 249;
+  --nb-auto: 245 158 11;
+  --nb-shadow: 0 4 20;
   color-scheme: dark;
 }
 
@@ -72,7 +72,7 @@ h3 {
     rgb(var(--nb-canvas));
 }
 .dark .nb-wave {
-  background: linear-gradient(140deg, #0b1730 0%, #0c1626 40%, #0a1220 70%, #0f1c34 100%) fixed;
+  background: linear-gradient(140deg, #0f1538 0%, #0a0e27 45%, #0a0e27 70%, #101a46 100%) fixed;
 }
 
 /* The panel's new-chat page, after Gemini in Chrome's: the brand background's strongest blue band, turned upside down
@@ -85,13 +85,13 @@ h3 {
     #f6fcff;
 }
 .dark .nb-start {
-  background: radial-gradient(120% 45% at 30% 100%, rgb(0 115 220 / 0.25), transparent 70%), rgb(var(--nb-canvas));
+  background: radial-gradient(120% 45% at 30% 100%, rgb(6 182 212 / 0.22), transparent 70%), rgb(var(--nb-canvas));
 }
 
 /* The settings page's field: the plain canvas in light, as under the panel's conversation, so the forms read calmly
    and the page matches the panel; a navy gradient in dark. */
 .dark .nb-field {
-  background: linear-gradient(140deg, #0b1730 0%, #0c1626 40%, #0a1220 70%, #0f1c34 100%) fixed;
+  background: linear-gradient(140deg, #0f1538 0%, #0a0e27 45%, #0a0e27 70%, #101a46 100%) fixed;
 }
 
 /* Thin, quiet scrollbars in the narrow panel. */

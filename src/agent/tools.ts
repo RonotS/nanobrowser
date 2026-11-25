@@ -3,6 +3,8 @@
 import { argsJsonSchema, isReadOnly, TOOL_SPECS } from '@src/browser-control';
 import type { ToolDefinition } from '@src/llm';
 import { READ_ATTACHMENT_TOOL } from './attachments';
+import { CC_ACTION, CC_READ } from './command-center';
+import { GENERATE_IMAGE, GENERATE_VIDEO } from './media';
 import { SAVE_FILE_TOOL } from './save-file';
 
 export type ToolKind = 'read' | 'wait' | 'mutate' | 'control' | 'state';
@@ -135,6 +137,11 @@ export function kindOf(tool: string, args: Record<string, unknown>): ToolKind {
   if (tool === 'wait') return 'wait';
   if (tool === 'save_file') return 'state';
   if (tool === 'read_attachment') return 'read';
+  // Command Center: a read tool only reads; an action changes Command Center, not a page, like saving a file.
+  if (tool === CC_READ) return 'read';
+  if (tool === CC_ACTION) return 'state';
+  // Generated media becomes a file of the conversation, like a saved file: it changes no page.
+  if (tool === GENERATE_IMAGE || tool === GENERATE_VIDEO) return 'state';
   if (tool === 'tabs') return args.action === 'list' ? 'read' : 'mutate';
   const spec = TOOL_SPECS.find(s => s.name === tool);
   if (!spec) return 'mutate';

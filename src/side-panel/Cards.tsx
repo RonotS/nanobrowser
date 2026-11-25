@@ -245,6 +245,33 @@ function ConfirmCard({ prompt, answer }: { prompt: OpenPrompt; answer: (a: unkno
   );
 }
 
+/**
+ * A Command Center action in Ask mode: the tool's name, what it does (Command Center's own description) and the
+ * arguments the AI chose, for the user to approve or decline.
+ */
+function CommandCenterActionCard({ prompt, answer }: { prompt: OpenPrompt; answer: (a: unknown) => void }) {
+  const d = prompt.data;
+  return (
+    <Frame title={t('card.cc.title')} tone="write">
+      <Line>
+        <span className="font-mono text-xs">{plain(d.tool)}</span>
+        {d.what ? <> · {plain(d.what)}</> : null}
+      </Line>
+      <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-lg bg-nb-surface p-2 font-mono text-[11px]">
+        {String(d.args ?? '')}
+      </pre>
+      <Buttons>
+        <button type="button" className={primary} onClick={() => answer('approve')}>
+          {t('card.cc.approve')}
+        </button>
+        <button type="button" className={secondary} onClick={() => answer('decline')}>
+          {t('card.cc.decline')}
+        </button>
+      </Buttons>
+    </Frame>
+  );
+}
+
 /** Saving a file needs these, and Open and Show in folder on the saved file need the second. */
 const SAVE_PERMISSIONS = ['downloads', 'downloads.open'] as const;
 
@@ -311,6 +338,8 @@ export function Cards({ prompts, answer }: { prompts: OpenPrompt[]; answer: (id:
             return <ConfirmCard key={p.id} prompt={p} answer={reply} />;
           case 'save-file':
             return <SaveFileCard key={p.id} prompt={p} answer={reply} />;
+          case 'cc-action':
+            return <CommandCenterActionCard key={p.id} prompt={p} answer={reply} />;
           default:
             return null;
         }

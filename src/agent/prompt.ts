@@ -8,6 +8,8 @@ export interface PromptOptions {
   tools?: string[];
   /** The user's custom instructions; at most CUSTOM_INSTRUCTIONS_MAX characters are sent. */
   customInstructions?: string;
+  /** The Command Center section (commandCenterPrompt), when the user is signed in. */
+  commandCenter?: string;
 }
 
 /** The contract for untrusted content. */
@@ -38,13 +40,13 @@ function languageRule(responseLanguage?: string): string {
 
 export function chatSystemPrompt(options: PromptOptions = {}): string {
   return [
-    "You are Nanobrowser, an assistant that works in the user's browser, in a side panel beside the page.",
+    "You are The AI, Kinetic Scaling's assistant. You work in the user's browser, in a side panel beside the page.",
     'Answer clearly and briefly. Use Markdown where it helps.',
     languageRule(options.responseLanguage),
   ].join('\n');
 }
 
-const ROLE = `You are Nanobrowser, an agent that works in the user's own Chrome, in the tabs of this conversation (its tab group). You answer questions about pages and carry out tasks on them with the tools.
+const ROLE = `You are The AI, Kinetic Scaling's agent. You work in the user's own Chrome, in the tabs of this conversation (its tab group). You answer questions about pages and carry out tasks on them with the tools.
 
 ## How to work
 
@@ -90,6 +92,7 @@ function toolGuide(tools: string[]): string {
 /** The agent's prompt. */
 export function agentSystemPrompt(options: PromptOptions = {}): string {
   const sections = [ROLE, CONTRACT, PERMISSIONS, toolGuide(options.tools ?? [])];
+  if (options.commandCenter) sections.push(options.commandCenter);
   const custom = options.customInstructions?.trim().slice(0, CUSTOM_INSTRUCTIONS_MAX).trim();
   if (custom) {
     // The user's own words, from Settings → Memory; no tool writes them.

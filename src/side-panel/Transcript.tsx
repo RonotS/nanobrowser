@@ -15,6 +15,7 @@ import { Activity, phaseOf } from './Activity';
 import { messageTime, messageTimeFull } from './message-time';
 import { ArrowDownIcon, CheckIcon, CopyIcon, FileIcon, PencilIcon, RestartIcon } from '@src/ui/icons';
 import { useGrantedPermissions } from '@src/ui/optional-permissions';
+import { getBlob } from '@src/store/conversations';
 
 export interface MessageActions {
   /** False while a run works: Edit, Restart and Retry wait for it. */
@@ -270,6 +271,7 @@ function ItemView({
     );
   }
   if (item.kind === 'download') return <SavedFile name={item.name} downloadId={item.downloadId} bytes={item.bytes} />;
+  if (item.kind === 'media') return <GeneratedMedia item={item} />;
   return <RunView item={item} now={now} streaming={streaming} live={live} settled={settled} />;
 }
 
@@ -283,6 +285,56 @@ function noticeText(text: string): string {
 }
 
 const NOTICE_KEYS = (Object.keys(en) as MessageKey[]).filter(k => k.startsWith('notice.'));
+
+/**
+ * An image or video the agent generated: the file itself, read from the conversation's attached files, with the prompt
+ * it was made from and Save, which downloads it under its name. A file that is gone (the conversation's files were
+ * deleted) shows only its name.
+ */
+function GeneratedMedia({ item }: { item: Extract<DisplayEntry, { kind: 'media' }> }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [gone, setGone] = useState(false);
+  useEffect(() => {
+    let made: string | null = null;
+    void getBlob(item.attachmentId).then(blob => {
+      if (!blob) return setGone(true);
+      made = URL.createObjectURL(blob.data);
+      setUrl(made);
+    });
+    return () => {
+      if (made) URL.revokeObjectURL(made);
+    };
+  }, [item.attachmentId]);
+  const video = item.mimeType.startsWith('video/');
+  return (
+    <figure className="flex flex-col gap-1.5 rounded-xl border border-nb-border bg-nb-bg p-2 text-xs shadow-sm">
+      {url ? (
+        video ? (
+          // eslint-disable-next-line jsx-a11y/media-has-caption
+          <video src={url} controls className="max-h-80 w-full rounded-lg bg-black" />
+        ) : (
+          <img src={url} alt={item.prompt} className="max-h-80 w-full rounded-lg object-contain" />
+        )
+      ) : (
+        <div className="flex h-24 items-center justify-center rounded-lg bg-nb-surface text-nb-muted">
+          {gone ? t('media.gone') : t('panel.loading')}
+        </div>
+      )}
+      <figcaption className="flex flex-wrap items-center gap-2">
+        <FileIcon size={14} className="text-nb-link" />
+        <span className="min-w-0 flex-1 truncate" title={item.prompt}>
+          {t(video ? 'media.video' : 'media.image', { model: item.model })}
+        </span>
+        <span className="text-nb-muted">{(item.bytes / 1024 / 1024).toFixed(1)} MB</span>
+        {url ? (
+          <a className={action} href={url} download={item.name}>
+            {t('media.save')}
+          </a>
+        ) : null}
+      </figcaption>
+    </figure>
+  );
+}
 
 /**
  * A file the agent saved: its name, Open and Show in folder. The two buttons need Chrome's downloads permissions; while

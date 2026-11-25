@@ -97,6 +97,16 @@ export function toDisplay(branch: Entry[]): DisplayEntry[] {
         bytes: data.bytes,
         at: e.at,
       });
+    } else if (e.type === 'ui' && e.kind === 'media') {
+      const data = e.data as {
+        attachmentId: string;
+        name: string;
+        mimeType: string;
+        bytes: number;
+        model: string;
+        prompt: string;
+      };
+      out.push({ kind: 'media', id: e.id, ...data, at: e.at });
     } else if (e.type === 'ui' && e.kind === 'notice') {
       const data = e.data as { text: string; tone?: 'info' | 'warn' | 'error' };
       out.push({ kind: 'notice', id: e.id, text: data.text, tone: data.tone ?? 'info', at: e.at });

@@ -6,6 +6,19 @@ import type { HostPort } from '@src/agent/ports';
 import type { Session, UserStepDetails } from '@src/browser-control';
 import { agentSystemPrompt } from '@src/agent/prompt';
 import { toolsForRun } from '@src/agent/tools';
+import type { AgentTool } from '@src/agent/tools';
+import {
+  CC_ACTION,
+  CC_READ,
+  commandCenterAgentTools,
+  commandCenterPrompt,
+  firstSentence,
+} from '@src/agent/command-center';
+import { callCommandCenterTool, commandCenterFetch, commandCenterStorage, NO_EXTRAS } from '@src/store/command-center';
+import { commandCenterBaseUrl } from '@src/store/command-center-providers';
+import { GENERATE_IMAGE, GENERATE_VIDEO, mediaAgentTools, mediaRequest } from '@src/agent/media';
+import { extensionOf, generateImages, generateVideo } from '@src/llm/media';
+import type { MediaFile } from '@src/llm/media';
 import { toDisplay } from '@src/agent/display';
 import {
   activeBranch,
@@ -1002,7 +1015,14 @@ export class RunManager {
     conversationId: string,
     call: ToolCallRequest,
     signal: AbortSignal,
+    wrap: (text: string, source: { site: string }) => string,
   ): Promise<{ text: string; isError: boolean }> {
+    if (call.toolName === CC_READ || call.toolName === CC_ACTION) {
+      return this.#commandCenterTool(conversationId, call, signal, wrap);
+    }
+    if (call.toolName === GENERATE_IMAGE || call.toolName === GENERATE_VIDEO) {
+      return this.#generateMedia(conversationId, call, signal);
+    }
     if (call.toolName !== 'save_file') return { text: `error: ${call.toolName} is not available.`, isError: true };
     const args = (call.input ?? {}) as Record<string, unknown>;
     const check = checkSave(args);
@@ -1072,6 +1092,186 @@ export class RunManager {
   }
 
   /**
+   * The Command Center tools: one of Command Center's tools, run as the signed-in person. A read runs at once; an action
+   * follows the mode, as a page write does: in Ask mode its card asks first, in Auto mode it runs. Command Center's
+   * answer is company data that people wrote (notes, transcripts, documents), so it reaches the model inside the
+   * page-content boundary, never as instructions.
+   */
+  async #commandCenterTool(
+    conversationId: string,
+    call: ToolCallRequest,
+    signal: AbortSignal,
+    wrap: (text: string, source: { site: string }) => string,
+  ): Promise<{ text: string; isError: boolean }> {
+    const input = (call.input ?? {}) as { tool?: unknown; arguments?: unknown };
+    const name = typeof input.tool === 'string' ? input.tool : '';
+    const args = input.arguments && typeof input.arguments === 'object' ? input.arguments : {};
+    const connection = await commandCenterStorage.get();
+    if (!connection) {
+      return { text: 'error: the user is not signed in to Command Center, so its tools cannot run.', isError: true };
+    }
+    const tool = connection.tools.find(t => t.name === name);
+    if (!tool) {
+      return {
+        text: `error: Command Center has no tool ${quote(name, 80)} for this person. Use one listed under Command Center.`,
+        isError: true,
+      };
+    }
+    if (tool.readOnly !== (call.toolName === CC_READ)) {
+      return {
+        text: `error: ${name} ${tool.readOnly ? `only reads: call it with ${CC_READ}` : `changes something: call it with ${CC_ACTION}`}.`,
+        isError: true,
+      };
+    }
+    if (!tool.readOnly && (this.#modes.get(conversationId) ?? 'ask') === 'ask') {
+      const answer = await this.broker.open<'approve' | 'decline'>(
+        conversationId,
+        'cc-action',
+        {
+          tool: name,
+          what: firstSentence(tool.description, 240),
+          args: JSON.stringify(args, null, 2).slice(0, 1200),
+        },
+        signal,
+      );
+      if (answer !== 'approve') {
+        return {
+          text: `${CC_ACTION} · the user declined ${name}; nothing was changed in Command Center.`,
+          isError: true,
+        };
+      }
+    }
+    try {
+      const result = await callCommandCenterTool(name, args, signal);
+      const label = `${call.toolName} · ${name}`;
+      if (result.isError)
+        return { text: `${label} · error\n${wrap(result.text, { site: 'Command Center' })}`, isError: true };
+      return { text: `${label}\n${wrap(result.text, { site: 'Command Center' })}`, isError: false };
+    } catch (error) {
+      return { text: `error: ${String((error as Error)?.message ?? error)}`, isError: true };
+    }
+  }
+
+  /**
+   * `generate_image` and `generate_video`: made on the company's keys through Command Center. Each file is kept with the
+   * conversation as an attached file (so `upload` can put it into a page), and shown in the panel with Save. Nothing on
+   * a page changes, so it runs in either mode; Command Center caps how many each person makes an hour.
+   */
+  async #generateMedia(
+    conversationId: string,
+    call: ToolCallRequest,
+    signal: AbortSignal,
+  ): Promise<{ text: string; isError: boolean }> {
+    const connection = await commandCenterStorage.get();
+    if (!connection) return { text: 'error: the user is not signed in to Command Center.', isError: true };
+    const media = connection.extras?.media ?? NO_EXTRAS.media;
+    const request = mediaRequest(call.toolName, (call.input ?? {}) as Record<string, unknown>, media);
+    if (typeof request === 'string')
+      return { text: `error INVALID_ARGUMENT (nothing made)\n${request}`, isError: true };
+    const references: MediaFile[] = [];
+    for (const id of request.references) {
+      const blob = await getBlob(id);
+      if (!blob || blob.conversationId !== conversationId) {
+        return {
+          text: `error NOT_FOUND (nothing made)\nNo file with id ${quote(id, 80)} in this conversation.`,
+          isError: true,
+        };
+      }
+      if (!blob.mimeType.startsWith('image/')) {
+        return {
+          text: `error INVALID_ARGUMENT (nothing made)\n${quote(blob.name, 120)} is not an image.`,
+          isError: true,
+        };
+      }
+      references.push({ bytes: new Uint8Array(await blob.data.arrayBuffer()), mimeType: blob.mimeType });
+    }
+    const endpoint = {
+      baseUrl: commandCenterBaseUrl(connection.url, request.model.provider),
+      fetch: commandCenterFetch,
+    };
+    let files: MediaFile[];
+    try {
+      files =
+        request.kind === 'image'
+          ? await generateImages(
+              request.model.provider,
+              endpoint,
+              {
+                model: request.model.name,
+                prompt: request.prompt,
+                count: request.count,
+                references,
+                ...(request.aspectRatio ? { aspectRatio: request.aspectRatio } : {}),
+              },
+              signal,
+            )
+          : [
+              await generateVideo(
+                endpoint,
+                {
+                  model: request.model.name,
+                  prompt: request.prompt,
+                  ...(request.duration ? { duration: request.duration } : {}),
+                  ...(request.aspectRatio ? { aspectRatio: request.aspectRatio } : {}),
+                  ...(references[0] ? { image: references[0] } : {}),
+                },
+                { signal },
+              ),
+            ];
+    } catch (error) {
+      return {
+        text: `error GENERATION_FAILED (nothing made)\n${String((error as Error)?.message ?? error)}`,
+        isError: true,
+      };
+    }
+    const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19);
+    const made: string[] = [];
+    for (const [i, file] of files.entries()) {
+      const id = newId();
+      const name = `${request.kind}-${stamp}${files.length > 1 ? `-${i + 1}` : ''}.${extensionOf(file.mimeType)}`;
+      const createdAt = new Date().toISOString();
+      await putBlob({
+        id,
+        conversationId,
+        name,
+        mimeType: file.mimeType,
+        size: file.bytes.length,
+        data: new Blob([file.bytes as Uint8Array<ArrayBuffer>], { type: file.mimeType }),
+        createdAt,
+      });
+      const data = {
+        attachmentId: id,
+        name,
+        mimeType: file.mimeType,
+        bytes: file.bytes.length,
+        model: request.model.name,
+        prompt: request.prompt,
+      };
+      const entry = await appendEntry(conversationId, { type: 'ui', kind: 'media', data });
+      this.emit(conversationId, { type: 'message_end', entry: { kind: 'media', id: entry.id, ...data, at: entry.at } });
+      made.push(`${id} (${name}, ${Math.round(file.bytes.length / 1024)} KB)`);
+    }
+    const what = files.length > 1 ? `${files.length} ${request.kind}s` : `1 ${request.kind}`;
+    return {
+      text: `${call.toolName} · made ${what} with ${request.model.name}, kept with this conversation as attached files: ${made.join(', ')}. The user sees ${files.length > 1 ? 'them' : 'it'} in the panel. To put one into a page, use upload with its id.`,
+      isError: false,
+    };
+  }
+
+  /** The Command Center tools and prompt section for a run: none when the user is not signed in. */
+  async #commandCenterSetup(): Promise<{ agentTools: AgentTool[]; prompt: string }> {
+    const connection = await commandCenterStorage.get();
+    if (!connection) return { agentTools: [], prompt: '' };
+    return {
+      agentTools: [
+        ...commandCenterAgentTools(connection.tools),
+        ...mediaAgentTools(connection.extras?.media ?? NO_EXTRAS.media),
+      ],
+      prompt: commandCenterPrompt(connection.tools, { name: connection.user.name, role: connection.user.role }),
+    };
+  }
+
+  /**
    * "Screenshot of this tab": taken through the layer's `screenshot`, so its masking applies, in a session of its own
    * that ends with the capture. It becomes an image attachment for the next message. A tab a working run holds is not
    * captured.
@@ -1130,11 +1330,13 @@ export class RunManager {
     try {
       const model = await resolveModel(await livePair(conversationId));
       const settings = (await settingsStorage.get()) ?? DEFAULT_SETTINGS;
-      const tools = toolsForRun({ vision: model.profile.vision });
+      const commandCenter = await this.#commandCenterSetup();
+      const tools = toolsForRun({ vision: model.profile.vision, agentTools: commandCenter.agentTools });
       const system = agentSystemPrompt({
         responseLanguage: settings.responseLanguage,
         tools: tools.map(t => t.name),
         customInstructions: settings.customInstructions,
+        commandCenter: commandCenter.prompt,
       });
       const unverified = new Set(((await getRun(conversationId))?.debt ?? []).map(d => d.toolCallId));
       const result = await runCompaction({
@@ -1299,7 +1501,9 @@ export class RunManager {
         this.#modes.set(conversationId, conversation.mode);
         const session = await this.#openSession(conversationId);
         record.tabs = session.tabIds();
-        const tools = toolsForRun({ vision: model.profile.vision });
+        const commandCenter = await this.#commandCenterSetup();
+        const tools = toolsForRun({ vision: model.profile.vision, agentTools: commandCenter.agentTools });
+        const port = layerPort(session, this.border);
         const loop = new AgentLoop({
           conversationId,
           runId,
@@ -1309,16 +1513,17 @@ export class RunManager {
             responseLanguage: settings.responseLanguage,
             tools: tools.map(t => t.name),
             customInstructions: settings.customInstructions,
+            commandCenter: commandCenter.prompt,
           }),
           tools,
           mode: () => this.#modes.get(conversationId) ?? conversation.mode,
-          layer: layerPort(session, this.border),
+          layer: port,
           host: this.#host(conversationId, session),
           signal: controller.signal,
           emit: event => this.emit(conversationId, event),
           turnCap: settings.turnCap,
           thumbnail,
-          agentTool: (call, signal) => this.#agentTool(conversationId, call, signal),
+          agentTool: (call, signal) => this.#agentTool(conversationId, call, signal, port.wrap),
           restore: restore ? { debt: restore.debt as DebtEntry[], guards: restore.guards } : undefined,
           takeSteering: () => {
             const queue = this.#queues.get(conversationId)?.splice(0) ?? [];

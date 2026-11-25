@@ -137,11 +137,24 @@ export type DisplayEntry =
     }
   | { kind: 'notice'; id: string; text: string; tone: 'info' | 'warn' | 'error'; at: string }
   /** A file the agent saved, with Open and Show in folder. */
-  | { kind: 'download'; id: string; name: string; downloadId: number; bytes: number; at: string };
+  | { kind: 'download'; id: string; name: string; downloadId: number; bytes: number; at: string }
+  /** An image or video the agent generated, kept with the conversation as an attached file; with a preview and Save. */
+  | {
+      kind: 'media';
+      id: string;
+      attachmentId: string;
+      name: string;
+      mimeType: string;
+      bytes: number;
+      /** The model that made it, as Command Center names it. */
+      model: string;
+      prompt: string;
+      at: string;
+    };
 
 export interface OpenPrompt {
   id: string;
-  kind: 'write-card' | 'handover' | 'ask-takeover' | 'ask-input' | 'save-file' | 'confirm';
+  kind: 'write-card' | 'handover' | 'ask-takeover' | 'ask-input' | 'save-file' | 'confirm' | 'cc-action';
   conversationId: string;
   tabId?: number;
   /** Everything the card shows; fixed titles and lines are the panel's own strings. */

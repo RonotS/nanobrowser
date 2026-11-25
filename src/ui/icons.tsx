@@ -64,6 +64,13 @@ export const MicIcon = (p: IconProps) => (
   </Svg>
 );
 
+/** The voice agent: a sound wave. */
+export const VoiceIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 10v4M8 6v12M12 3v18M16 7v10M20 10v4" />
+  </Svg>
+);
+
 export const SendIcon = (p: IconProps) => (
   <Svg {...p}>
     <path d="M12 19V5M6 11l6-6 6 6" />
@@ -217,15 +224,19 @@ export function LogoMark({ size = 20, className = '' }: { size?: number; classNa
   return <img src="/icon-128.png" alt="" width={size} height={size} className={`shrink-0 ${className}`} />;
 }
 
-/** The brand's horizontal logo: the mark and "Nanobrowser". */
+/** The brand's horizontal logo: Kinetic Scaling's mark and "The AI", drawn as text so it stays sharp at any size. */
 export function Logo({ height = 28, className = '' }: { height?: number; className?: string }) {
   return (
-    <img
-      src="/brand/logo-horizontal.png"
-      alt="Nanobrowser"
-      height={height}
-      style={{ height, width: 'auto' }}
-      className={className}
-    />
+    <span className={`inline-flex items-center gap-2 ${className}`} style={{ height }}>
+      <LogoMark size={height} />
+      <span className="flex flex-col justify-center leading-none">
+        <span className="font-sans font-semibold tracking-tight" style={{ fontSize: height * 0.62 }}>
+          The AI
+        </span>
+        <span className="font-sans uppercase tracking-[0.18em] text-nb-muted" style={{ fontSize: height * 0.26 }}>
+          Kinetic Scaling
+        </span>
+      </span>
+    </span>
   );
 }

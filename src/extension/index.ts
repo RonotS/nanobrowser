@@ -6,9 +6,6 @@ import { RunManager } from './run-manager';
 import { listenForSelections } from './selection';
 import { upgradeFromOldVersion } from './upgrade';
 import { analyticsReady, listenForSwitches, recordInstall } from './analytics';
-import { setUninstallPage } from './uninstall';
-import { openWhatsNew } from '@src/store/whats-new';
-import { WHATS_NEW, releaseOf } from '@src/ui/whats-new';
 import { DATA_REQUEST } from '@src/ui/protocol';
 
 export const runManager = new RunManager();
@@ -20,11 +17,7 @@ listenForSelections(runManager);
 chrome.runtime.onInstalled.addListener(details => {
   if (details.reason === 'update') {
     console.info(`[install] updated from ${details.previousVersion}`);
-    // A release with highlights shows its card once in the side panel.
-    const release = releaseOf(chrome.runtime.getManifest().version);
-    if (WHATS_NEW[release] && releaseOf(details.previousVersion ?? '') !== release) {
-      void openWhatsNew(release).catch(error => console.error('[install] what is new failed', error));
-    }
+    // Nanobrowser's What's new card is not shown: its highlights describe Nanobrowser's releases, not the AI's.
   }
   // Analytics records a real install's week; autorun builds too, so their check can see it.
   if (details.reason === 'install')
@@ -51,4 +44,3 @@ void upgradeFromOldVersion().catch(error => console.error('[upgrade] move failed
 // Analytics waits for that move, then applies the old version's choice once; nothing is sent before.
 void analyticsReady();
 listenForSwitches();
-setUninstallPage();

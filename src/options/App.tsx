@@ -6,18 +6,19 @@ import { setLanguage, t, useLanguage } from '@src/ui/i18n';
 import { applyTheme } from '@src/ui/theme';
 import type { MessageKey } from '@src/ui/i18n';
 import { GeneralSection } from './GeneralSection';
-import { ProvidersSection } from './ProvidersSection';
+import { CommandCenterSection } from './CommandCenterSection';
 import { PermissionsSection } from './PermissionsSection';
 import { ShortcutsSection } from './ShortcutsSection';
 import { MemorySection } from './MemorySection';
 import { DataSection } from './DataSection';
 import { AboutSection } from './AboutSection';
 import { Logo } from '@src/ui/icons';
-import { websiteUrl } from '@src/ui/links';
 
 const SECTIONS: Array<{ id: string; label: MessageKey; render: () => JSX.Element }> = [
   { id: 'general', label: 'settings.nav.general', render: () => <GeneralSection /> },
-  { id: 'providers', label: 'settings.nav.providers', render: () => <ProvidersSection /> },
+  // Command Center takes the place of the provider cards: the AI uses only the company's keys, through it. The id
+  // stays `providers`, so links to that section still land here.
+  { id: 'providers', label: 'settings.nav.providers', render: () => <CommandCenterSection /> },
   { id: 'permissions', label: 'settings.nav.permissions', render: () => <PermissionsSection /> },
   { id: 'shortcuts', label: 'settings.nav.shortcuts', render: () => <ShortcutsSection /> },
   { id: 'memory', label: 'settings.nav.memory', render: () => <MemorySection /> },
@@ -66,16 +67,6 @@ export function App() {
             className="flex shrink-0 flex-col gap-1 sm:sticky sm:top-8 sm:w-52 sm:self-start">
             {SECTIONS.map(s => (
               <Fragment key={s.id}>
-                {/* Help, a link to the website's help pages in a new tab, sits above About; it is not a section. */}
-                {s.id === 'about' ? (
-                  <a
-                    href={websiteUrl('/docs', 'settings')}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="rounded-lg px-3 py-2.5 text-left text-[15px] text-nb-fg/80 transition-colors hover:bg-nb-surface/60 hover:text-nb-fg focus-visible:outline focus-visible:outline-2 focus-visible:outline-nb-accent">
-                    {t('settings.nav.help')}
-                  </a>
-                ) : null}
                 <button
                   type="button"
                   aria-current={s.id === section ? 'page' : undefined}

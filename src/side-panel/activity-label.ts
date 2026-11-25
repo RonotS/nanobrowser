@@ -44,6 +44,8 @@ const LABELS: Record<string, MessageKey> = {
   upload: 'act.upload',
   read_attachment: 'act.readAttachment',
   save_file: 'act.saveFile',
+  generate_image: 'act.generateImage',
+  generate_video: 'act.generateVideo',
 };
 
 const ALLOWED: Record<string, MessageKey> = {
@@ -103,6 +105,9 @@ export function activityLine(row: ToolRow): ActivityLine {
     label = t('act.snapshot');
   } else if (row.tool === 'read') {
     label = t(args.ref ? 'act.readElement' : args.offset ? 'act.readMore' : 'act.read');
+  } else if (row.tool === 'command_center_read' || row.tool === 'command_center_action') {
+    // The Command Center tool's own name, which the agent chose; shown as text.
+    label = t(row.tool === 'command_center_read' ? 'act.ccRead' : 'act.ccAction', { name: String(args.tool ?? '') });
   } else if (row.tool === 'find') {
     label = t('act.find', { what: String(args.name ?? args.text ?? args.role ?? '') });
   } else {

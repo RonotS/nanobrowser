@@ -13,6 +13,7 @@ import {
   settingsStorage,
   usableModel,
 } from '@src/store/settings';
+import { commandCenterFetch, isCommandCenterProvider } from '@src/store/command-center';
 import type { LivePair } from '@src/store/types';
 import type { ResolvedModel } from '@src/agent/run';
 
@@ -36,7 +37,7 @@ export async function livePair(conversationId: string | null): Promise<LivePair 
 }
 
 export async function resolveModel(pair: LivePair | null): Promise<ResolvedModel> {
-  if (!pair) throw new ModelUnavailable('No model is chosen. Add one in Settings → Providers.');
+  if (!pair) throw new ModelUnavailable('Sign in to Command Center in Settings to use the AI.');
   const ref = pair.model;
   const providers = await providersStorage.get();
   const found = findModel(providers, ref);
@@ -80,15 +81,21 @@ export async function resolveModel(pair: LivePair | null): Promise<ResolvedModel
     detectedLoaded,
     ...learnt(found.model),
   });
-  const chat = createModel({
-    kind: found.provider.kind,
-    modelName: found.model.name,
-    apiKey: keys[found.provider.id],
-    baseUrl: found.provider.baseUrl,
-    maxOutputTokens: profile.maxOutput,
-    // Ollama and LM Studio take one request at a time by default; more wait in the extension, not on the server.
-    ...(LOCAL_KINDS.has(found.provider.kind) ? { maxConcurrent: 1 } : {}),
-  });
+  // A Command Center card holds no key: each request carries the person's newest Command Center token, which
+  // Command Center swaps for the company's key. The placeholder only tells the SDK where the token goes.
+  const viaCommandCenter = isCommandCenterProvider(found.provider.id);
+  const chat = createModel(
+    {
+      kind: found.provider.kind,
+      modelName: found.model.name,
+      apiKey: viaCommandCenter ? 'command-center' : keys[found.provider.id],
+      baseUrl: found.provider.baseUrl,
+      maxOutputTokens: profile.maxOutput,
+      // Ollama and LM Studio take one request at a time by default; more wait in the extension, not on the server.
+      ...(LOCAL_KINDS.has(found.provider.kind) ? { maxConcurrent: 1 } : {}),
+    },
+    viaCommandCenter ? { fetch: commandCenterFetch } : {},
+  );
   const learn = (facts: Parameters<NonNullable<ResolvedModel['learn']>>[0]) =>
     void learnFacts(found.provider.id, found.provider.baseUrl, found.model.name, facts);
   return { ref, chat, profile, reasoning: pair.reasoning, learn };
