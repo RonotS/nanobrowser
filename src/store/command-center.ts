@@ -1,5 +1,5 @@
-// The Command Center connection. The AI signs in through Command Center's own OAuth, the same flow Claude's
-// connector uses: the person logs in to Command Center and approves the AI once, and the AI then acts as that person,
+// The Command Center connection. Bash AI signs in through Command Center's own OAuth, the same flow Claude's
+// connector uses: the person logs in to Command Center and approves Bash AI once, and Bash AI then acts as that person,
 // with their current role. With the token it:
 //   - runs Command Center's tools (the company's data and SOPs) through its MCP endpoint, which limits them to the
 //     person's role;
@@ -27,7 +27,7 @@ export interface CommandCenterUser {
   role: string;
 }
 
-/** A model Command Center lets the AI use, on one of its three providers. */
+/** A model Command Center lets Bash AI use, on one of its three providers. */
 export interface CommandCenterModel {
   /** `claude`, `openai` or `grok`: the provider card it belongs to. */
   provider: CommandCenterProvider;
@@ -143,7 +143,7 @@ async function oauthError(response: Response): Promise<string> {
   if (typeof body?.error === 'string') return body.error;
   if (body?.error?.message) return body.error.message;
   if (response.status === 401) return 'Sign in to Command Center again.';
-  if (response.status === 403) return 'Your Command Center role cannot use the AI.';
+  if (response.status === 403) return 'Your Command Center role cannot use Bash AI.';
   return `Command Center answered ${response.status}.`;
 }
 
@@ -156,7 +156,7 @@ async function clientId(base: string): Promise<string> {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      client_name: 'The AI (Chrome)',
+      client_name: 'Bash AI (Chrome)',
       redirect_uris: [redirect],
       token_endpoint_auth_method: 'none',
       grant_types: ['authorization_code', 'refresh_token'],
@@ -166,7 +166,7 @@ async function clientId(base: string): Promise<string> {
   });
   if (!response.ok) throw new CommandCenterError(await oauthError(response), response.status);
   const { client_id } = (await response.json()) as { client_id?: string };
-  if (!client_id) throw new CommandCenterError('Command Center did not register the AI.');
+  if (!client_id) throw new CommandCenterError('Command Center did not register Bash AI.');
   await registrationStorage.set({ url: base, redirectUri: redirect, clientId: client_id });
   return client_id;
 }
@@ -223,7 +223,7 @@ async function authorize(base: string): Promise<{ clientId: string; tokens: Toke
   if (params.get('error')) {
     throw new CommandCenterError(
       params.get('error') === 'access_denied'
-        ? 'You declined the AI in Command Center.'
+        ? 'You declined Bash AI in Command Center.'
         : (params.get('error_description') ?? params.get('error') ?? 'Sign-in failed.'),
     );
   }
@@ -284,7 +284,7 @@ async function mcp(
 
 /**
  * Tool arguments that only Command Center's own assistant can fill (its conversation's member token, a client chat's
- * pass). A tool that requires one cannot work from the AI, so it is left out.
+ * pass). A tool that requires one cannot work from Bash AI, so it is left out.
  */
 const ASSISTANT_ONLY_ARGUMENTS = ['memberToken', 'clientPass'];
 
@@ -375,7 +375,7 @@ let renewing: Promise<CommandCenterConnection> | null = null;
 export function renewCommandCenter(): Promise<CommandCenterConnection> {
   renewing ??= (async () => {
     const connection = await commandCenterStorage.get();
-    if (!connection) throw new CommandCenterError('Sign in to Command Center to use the AI.');
+    if (!connection) throw new CommandCenterError('Sign in to Command Center to use Bash AI.');
     let tokens: TokenAnswer;
     try {
       tokens = await tokenRequest(connection.url, {
@@ -406,7 +406,7 @@ export function renewCommandCenter(): Promise<CommandCenterConnection> {
 /** The connection with an access token good for at least five more minutes, renewed when it is not. */
 export async function freshConnection(): Promise<CommandCenterConnection> {
   const connection = await commandCenterStorage.get();
-  if (!connection) throw new CommandCenterError('Sign in to Command Center to use the AI.');
+  if (!connection) throw new CommandCenterError('Sign in to Command Center to use Bash AI.');
   if (Date.parse(connection.expiresAt) - 5 * 60_000 > Date.now()) return connection;
   return renewCommandCenter();
 }

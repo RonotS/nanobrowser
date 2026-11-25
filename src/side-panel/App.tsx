@@ -32,7 +32,7 @@ import { installTestHook } from './test-hook';
 import type { SavedShortcut } from '@src/store/shortcuts';
 import { useShortcuts } from '@src/ui/shortcuts';
 import { AutoNotice } from '@src/ui/auto-notice';
-import { HistoryIcon, LogoMark, NewChatIcon, SettingsIcon, VoiceIcon } from '@src/ui/icons';
+import { HistoryIcon, LogoMark, MoonIcon, NewChatIcon, SettingsIcon, SunIcon, VoiceIcon } from '@src/ui/icons';
 import { VoiceBar } from './VoiceBar';
 import {
   commandCenterFetch,
@@ -47,7 +47,7 @@ const NO_PROVIDERS: ProviderConfig[] = [];
 const NO_KEYS: Record<string, string> = {};
 
 /** The starters a new conversation offers when no shortcut is pinned: a short label and the text it sends. */
-// Company tasks: they lean on Command Center, which is what sets the AI apart from a plain browser agent.
+// Company tasks: they lean on Command Center, which is what sets Bash AI apart from a plain browser agent.
 const STARTERS = [
   { label: 'panel.starter.clients', text: 'panel.starter.clientsText' },
   { label: 'panel.starter.sop', text: 'panel.starter.sopText' },
@@ -190,6 +190,9 @@ export function App() {
 
   useEffect(() => void setLanguage(settings.uiLanguage), [settings.uiLanguage]);
   useEffect(() => applyTheme(settings.theme), [settings.theme]);
+  // Whether the panel is dark now: chosen, or following a dark system.
+  const dark =
+    settings.theme === 'dark' || (settings.theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
 
   useEffect(() => {
     let created: PanelClient | null = null;
@@ -412,14 +415,36 @@ export function App() {
         </IconButton>
         {/* Talk: the voice agent, when Command Center offers a realtime voice. */}
         {commandCenter?.extras?.voice.agents.length ? (
-          <IconButton label={t('voice.title')} onClick={() => setVoiceOpen(open => !open)}>
+          <IconButton label={t('voice.title')} pressed={voiceOpen} onClick={() => setVoiceOpen(open => !open)}>
             <VoiceIcon />
           </IconButton>
         ) : null}
+        {/* Light or dark in one click; Settings → General still offers "System". */}
+        <IconButton
+          label={t(dark ? 'theme.light' : 'theme.dark')}
+          onClick={() => void settingsStorage.set(s => ({ ...s, theme: dark ? 'light' : 'dark' }))}>
+          {dark ? <SunIcon /> : <MoonIcon />}
+        </IconButton>
         <IconButton label={t('panel.settings')} onClick={() => void chrome.runtime.openOptionsPage()}>
           <SettingsIcon />
         </IconButton>
       </header>
+      {/* The voice agent sits at the top, under the header, while it is open. */}
+      {voiceOpen && commandCenter ? (
+        <VoiceBar
+          connection={commandCenter}
+          status={state.status}
+          lastReply={
+            [...state.entries].reverse().flatMap(e => (e.kind === 'assistant' && e.text.trim() ? [e.text] : []))[0] ??
+            null
+          }
+          send={text => sendMessage(text)}
+          stopTask={() => {
+            if (client && state.conversationId) client.send({ type: 'stop', conversationId: state.conversationId });
+          }}
+          onClose={() => setVoiceOpen(false)}
+        />
+      ) : null}
       {confirmNewChat ? (
         <div className="flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
           <span className="flex-1">{t('panel.newChatRunning')}</span>
@@ -535,21 +560,6 @@ export function App() {
           else setPendingTabs(tabs => tabs.filter(p => p.tabId !== tabId));
         }}
       />
-      {voiceOpen && commandCenter ? (
-        <VoiceBar
-          connection={commandCenter}
-          status={state.status}
-          lastReply={
-            [...state.entries].reverse().flatMap(e => (e.kind === 'assistant' && e.text.trim() ? [e.text] : []))[0] ??
-            null
-          }
-          send={text => sendMessage(text)}
-          stopTask={() => {
-            if (client && state.conversationId) client.send({ type: 'stop', conversationId: state.conversationId });
-          }}
-          onClose={() => setVoiceOpen(false)}
-        />
-      ) : null}
       <Composer
         active={active}
         mode={mode}
@@ -560,7 +570,7 @@ export function App() {
         notice={
           <>
             {/* The What's new card comes first; the notices below still show under it. The store-rating card is not shown:
-                the AI is the company's own tool, not in a store. */}
+                Bash AI is the company's own tool, not in a store. */}
             {whatsNew ? <WhatsNewCard release={whatsNew} /> : null}
             {attachError ? (
               <p className="text-xs text-amber-700 dark:text-amber-300" role="alert">
@@ -651,6 +661,7 @@ function IconButton({
   label,
   title,
   disabled,
+  pressed,
   onClick,
   children,
 }: {
@@ -658,6 +669,8 @@ function IconButton({
   /** The tooltip, when it says more than the label. */
   title?: string;
   disabled?: boolean;
+  /** A toggle that is on (the voice agent open): shown filled. */
+  pressed?: boolean;
   onClick: () => void;
   children: React.ReactNode;
 }) {
@@ -666,8 +679,9 @@ function IconButton({
       type="button"
       title={title ?? label}
       aria-label={label}
+      aria-pressed={pressed}
       disabled={disabled}
-      className="flex size-7 items-center justify-center rounded-lg text-nb-muted transition-colors hover:bg-nb-surface hover:text-nb-fg focus-visible:outline focus-visible:outline-2 focus-visible:outline-nb-accent disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-nb-muted"
+      className={`flex size-7 items-center justify-center rounded-lg transition-colors hover:bg-nb-surface hover:text-nb-fg focus-visible:outline focus-visible:outline-2 focus-visible:outline-nb-accent disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-nb-muted ${pressed ? 'bg-nb-accent/15 text-nb-accent' : 'text-nb-muted'}`}
       onClick={onClick}>
       {children}
     </button>

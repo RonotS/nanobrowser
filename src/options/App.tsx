@@ -16,7 +16,7 @@ import { Logo } from '@src/ui/icons';
 
 const SECTIONS: Array<{ id: string; label: MessageKey; render: () => JSX.Element }> = [
   { id: 'general', label: 'settings.nav.general', render: () => <GeneralSection /> },
-  // Command Center takes the place of the provider cards: the AI uses only the company's keys, through it. The id
+  // Command Center takes the place of the provider cards: Bash AI uses only the company's keys, through it. The id
   // stays `providers`, so links to that section still land here.
   { id: 'providers', label: 'settings.nav.providers', render: () => <CommandCenterSection /> },
   { id: 'permissions', label: 'settings.nav.permissions', render: () => <PermissionsSection /> },

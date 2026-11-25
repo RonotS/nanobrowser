@@ -46,7 +46,8 @@ export const DEFAULT_SETTINGS: Settings = {
   reasoning: 'medium',
   turnCap: 100,
   customInstructions: '',
-  theme: 'system',
+  // Dark by default, as Command Center is.
+  theme: 'dark',
   uiLanguage: 'auto',
   responseLanguage: 'auto',
   voiceModel: null,

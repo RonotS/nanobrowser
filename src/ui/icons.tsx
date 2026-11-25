@@ -64,6 +64,21 @@ export const MicIcon = (p: IconProps) => (
   </Svg>
 );
 
+/** Switches to light: a sun. */
+export const SunIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="4" />
+    <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+  </Svg>
+);
+
+/** Switches to dark: a moon. */
+export const MoonIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" />
+  </Svg>
+);
+
 /** The voice agent: a sound wave. */
 export const VoiceIcon = (p: IconProps) => (
   <Svg {...p}>
@@ -224,14 +239,14 @@ export function LogoMark({ size = 20, className = '' }: { size?: number; classNa
   return <img src="/icon-128.png" alt="" width={size} height={size} className={`shrink-0 ${className}`} />;
 }
 
-/** The brand's horizontal logo: Kinetic Scaling's mark and "The AI", drawn as text so it stays sharp at any size. */
+/** The brand's horizontal logo: Kinetic Scaling's mark and "Bash AI", drawn as text so it stays sharp at any size. */
 export function Logo({ height = 28, className = '' }: { height?: number; className?: string }) {
   return (
     <span className={`inline-flex items-center gap-2 ${className}`} style={{ height }}>
       <LogoMark size={height} />
       <span className="flex flex-col justify-center leading-none">
         <span className="font-sans font-semibold tracking-tight" style={{ fontSize: height * 0.62 }}>
-          The AI
+          Bash AI
         </span>
         <span className="font-sans uppercase tracking-[0.18em] text-nb-muted" style={{ fontSize: height * 0.26 }}>
           Kinetic Scaling

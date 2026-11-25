@@ -7,6 +7,9 @@ import { listenForSelections } from './selection';
 import { upgradeFromOldVersion } from './upgrade';
 import { analyticsReady, listenForSwitches, recordInstall } from './analytics';
 import { DATA_REQUEST } from '@src/ui/protocol';
+import { settingsStorage } from '@src/store/settings';
+
+const DARK_DEFAULT_KEY = 'kai.darkDefault';
 
 export const runManager = new RunManager();
 listenForPanels(runManager);
@@ -17,7 +20,7 @@ listenForSelections(runManager);
 chrome.runtime.onInstalled.addListener(details => {
   if (details.reason === 'update') {
     console.info(`[install] updated from ${details.previousVersion}`);
-    // Nanobrowser's What's new card is not shown: its highlights describe Nanobrowser's releases, not the AI's.
+    // Nanobrowser's What's new card is not shown: its highlights describe Nanobrowser's releases, not Bash AI's.
   }
   // Analytics records a real install's week; autorun builds too, so their check can see it.
   if (details.reason === 'install')
@@ -39,6 +42,16 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, reply) => {
 });
 chrome.alarms?.onAlarm.addListener(() => undefined);
 void runManager.restore().catch(error => console.error('[runs] restore failed', error));
+// Dark became the default (2026-11-25, as Command Center is): a theme still on the old default, System, moves to Dark
+// once. The panel's sun and moon switch it back at any time.
+void chrome.storage.local
+  .get(DARK_DEFAULT_KEY)
+  .then(async stored => {
+    if (stored[DARK_DEFAULT_KEY]) return;
+    await settingsStorage.set(s => (s.theme === 'system' ? { ...s, theme: 'dark' } : s));
+    await chrome.storage.local.set({ [DARK_DEFAULT_KEY]: true });
+  })
+  .catch(error => console.error('[theme] dark default failed', error));
 // An update from the old Nanobrowser: its data is moved on the first start that finds it, whenever that comes.
 void upgradeFromOldVersion().catch(error => console.error('[upgrade] move failed', error));
 // Analytics waits for that move, then applies the old version's choice once; nothing is sent before.

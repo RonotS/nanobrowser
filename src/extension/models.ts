@@ -37,7 +37,7 @@ export async function livePair(conversationId: string | null): Promise<LivePair 
 }
 
 export async function resolveModel(pair: LivePair | null): Promise<ResolvedModel> {
-  if (!pair) throw new ModelUnavailable('Sign in to Command Center in Settings to use the AI.');
+  if (!pair) throw new ModelUnavailable('Sign in to Command Center in Settings to use Bash AI.');
   const ref = pair.model;
   const providers = await providersStorage.get();
   const found = findModel(providers, ref);

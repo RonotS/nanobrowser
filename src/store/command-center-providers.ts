@@ -1,4 +1,4 @@
-// The provider cards Command Center gives the AI: Claude, OpenAI and Grok, each pointed at Command Center's model
+// The provider cards Command Center gives Bash AI: Claude, OpenAI and Grok, each pointed at Command Center's model
 // route, which adds the company's key on the server. They are written into the ordinary provider list, so the model
 // picker, the model profiles and the run work on them as on any provider. They hold no key: each request carries the
 // person's Command Center token (commandCenterFetch).
@@ -38,7 +38,7 @@ export function commandCenterBaseUrl(url: string, provider: CommandCenterProvide
 
 /**
  * The provider list for a connection: one card per provider Command Center offers, with its models. What a run learnt
- * about a model is kept while the card's address stays the same. Every other provider is removed: the AI's answers
+ * about a model is kept while the card's address stays the same. Every other provider is removed: Bash AI's answers
  * come only from Command Center's keys. Null (signed out) leaves no provider at all.
  */
 export function commandCenterProviders(

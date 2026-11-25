@@ -179,6 +179,11 @@ export class VoiceAgent {
     return null;
   }
 
+  /** How loud each side is right now, 0 to 1, for the wave: the person (microphone) and the answer (speaker). */
+  levels(): { input: number; output: number } {
+    return { input: this.#mic?.level() ?? 0, output: this.#player.level() };
+  }
+
   /**
    * Tells the voice model something happened (a browser task ended) and has it say so. Sent as the person's side of
    * the conversation in brackets, which both providers accept.

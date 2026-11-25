@@ -247,7 +247,7 @@ function ConfirmCard({ prompt, answer }: { prompt: OpenPrompt; answer: (a: unkno
 
 /**
  * A Command Center action in Ask mode: the tool's name, what it does (Command Center's own description) and the
- * arguments the AI chose, for the user to approve or decline.
+ * arguments Bash AI chose, for the user to approve or decline.
  */
 function CommandCenterActionCard({ prompt, answer }: { prompt: OpenPrompt; answer: (a: unknown) => void }) {
   const d = prompt.data;

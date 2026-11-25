@@ -1,4 +1,4 @@
-// The first run: the welcome page, opened when the extension is installed. Three steps: what the AI does with a
+// The first run: the welcome page, opened when the extension is installed. Three steps: what Bash AI does with a
 // coach mark for Chrome's pin button; signing in with Command Center (or Set it later); and three tips for safe use,
 // with a row that allows the browser features.
 // It uses Settings' type and cards, with the logo above the title.
@@ -159,7 +159,7 @@ function WelcomeStep() {
   );
 }
 
-/** Step 2: signing in with a Command Center login, which gives the AI its models and the company's data. */
+/** Step 2: signing in with a Command Center login, which gives Bash AI its models and the company's data. */
 function CommandCenterStep() {
   const connection = useStorage(commandCenterStorage, null);
   return (

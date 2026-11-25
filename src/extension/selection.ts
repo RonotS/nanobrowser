@@ -9,7 +9,7 @@ export function listenForSelections(manager: RunManager): void {
   chrome.runtime.onInstalled.addListener(() => {
     chrome.contextMenus.removeAll(() => {
       // Chrome's menus follow Chrome's language, so the title comes from the extension's locales.
-      const title = chrome.i18n.getMessage('menuAskAboutSelection') || 'Ask The AI about this';
+      const title = chrome.i18n.getMessage('menuAskAboutSelection') || 'Ask Bash AI about this';
       chrome.contextMenus.create({ id: MENU_ID, title, contexts: ['selection'] });
     });
   });

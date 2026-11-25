@@ -1,6 +1,6 @@
 // Settings → Command Center: signing in with a Command Center login, who is signed in, which models the company gives
-// the AI and how many Command Center tools the person's role allows. It takes the place of the provider cards and API
-// keys: the AI uses only the company's keys, through Command Center.
+// Bash AI and how many Command Center tools the person's role allows. It takes the place of the provider cards and API
+// keys: Bash AI uses only the company's keys, through Command Center.
 import { useState } from 'react';
 import { Button, Notice } from '@src/ui/components';
 import { useStorage } from '@src/ui/hooks';

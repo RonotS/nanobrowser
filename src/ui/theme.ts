@@ -8,9 +8,9 @@ const media = () => matchMedia('(prefers-color-scheme: dark)');
 export function storedTheme(): ThemePreference {
   try {
     const value = localStorage.getItem(KEY);
-    return value === 'light' || value === 'dark' ? value : 'system';
+    return value === 'light' || value === 'system' ? value : 'dark';
   } catch {
-    return 'system';
+    return 'dark';
   }
 }
 

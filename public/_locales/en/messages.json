@@ -1,17 +1,17 @@
 {
   "extName": {
-    "message": "The AI"
+    "message": "Bash AI"
   },
   "extDescription": {
     "message": "Kinetic Scaling's AI: works in your browser with what Command Center knows"
   },
   "actionTitle": {
-    "message": "Open The AI"
+    "message": "Open Bash AI"
   },
   "commandOpenPanel": {
-    "message": "Open The AI in the side panel"
+    "message": "Open Bash AI in the side panel"
   },
   "menuAskAboutSelection": {
-    "message": "Ask The AI about this"
+    "message": "Ask Bash AI about this"
   }
 }

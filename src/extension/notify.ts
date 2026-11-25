@@ -8,13 +8,13 @@ import type { OpenPrompt } from '@src/ui/protocol';
 const tabOfNotification = new Map<string, number>();
 
 const NEEDS: Record<string, (site: string) => string> = {
-  'write-card': site => `The AI asks before it changes something on ${site}.`,
-  handover: site => `The AI needs you: a step on ${site} is yours to do.`,
-  'ask-takeover': site => `The AI needs you to do a step on ${site}.`,
-  'ask-input': () => 'The AI has a question for you.',
-  'save-file': () => 'The AI asks before it saves a file.',
-  'cc-action': () => 'The AI asks before it changes something in Command Center.',
-  confirm: () => 'The AI has a question for you.',
+  'write-card': site => `Bash AI asks before it changes something on ${site}.`,
+  handover: site => `Bash AI needs you: a step on ${site} is yours to do.`,
+  'ask-takeover': site => `Bash AI needs you to do a step on ${site}.`,
+  'ask-input': () => 'Bash AI has a question for you.',
+  'save-file': () => 'Bash AI asks before it saves a file.',
+  'cc-action': () => 'Bash AI asks before it changes something in Command Center.',
+  confirm: () => 'Bash AI has a question for you.',
 };
 
 async function siteOfTab(tabId: number | undefined): Promise<string> {
@@ -30,14 +30,14 @@ export async function notifyNeeds(prompt: OpenPrompt, fallbackTab: number | unde
 }
 
 export async function notifyFinished(conversationId: string, ok: boolean, tabId: number | undefined): Promise<void> {
-  await show(`done-${conversationId}`, ok ? 'The AI finished the task.' : 'The AI stopped before finishing.', tabId);
+  await show(`done-${conversationId}`, ok ? 'Bash AI finished the task.' : 'Bash AI stopped before finishing.', tabId);
 }
 
 async function show(id: string, message: string, tabId: number | undefined): Promise<void> {
   if (!globalThis.chrome?.notifications) return;
   if (tabId !== undefined) tabOfNotification.set(id, tabId);
   await chrome.notifications
-    .create(id, { type: 'basic', iconUrl: chrome.runtime.getURL('/icon-128.png'), title: 'The AI', message })
+    .create(id, { type: 'basic', iconUrl: chrome.runtime.getURL('/icon-128.png'), title: 'Bash AI', message })
     .catch(() => undefined);
 }
 

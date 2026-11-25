@@ -9,7 +9,7 @@ export function AboutSection() {
   return (
     <div className="flex flex-col gap-6">
       <h2 className="sr-only">{t('settings.nav.about')}</h2>
-      <SettingsCard title="The AI · Kinetic Scaling" className="flex flex-col gap-1">
+      <SettingsCard title="Bash AI · Kinetic Scaling" className="flex flex-col gap-1">
         <p className="text-sm">{t('about.version', { version: manifest.version })}</p>
         {/* Apache-2.0 asks that the work it came from is credited. */}
         <p className="text-sm text-nb-muted">{t('about.license', { license: 'Apache-2.0' })}</p>

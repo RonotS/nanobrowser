@@ -1,4 +1,4 @@
-// The voice agent's bar above the composer: which voice (OpenAI or Grok), what it is doing, the last lines of the
+// The voice agent's panel at the top of the side panel: a live sound wave, which voice (OpenAI or Grok), what it is doing, the last lines of the
 // conversation, and End. While it is open the person talks; the voice model answers aloud, looks things up in Command
 // Center, and hands work in the browser to the browser agent, whose run shows in the conversation as usual.
 import { useEffect, useRef, useState } from 'react';
@@ -8,6 +8,8 @@ import type { RunStatus } from '@src/store/types';
 import { t } from '@src/ui/i18n';
 import type { MessageKey } from '@src/ui/i18n';
 import { NoSessionError, VoiceAgent } from './voice-agent';
+import { Waveform } from './Waveform';
+import type { WaveMode } from './Waveform';
 import type { VoiceLine, VoiceProvider, VoiceState, VoiceToolDefinition } from './voice-agent';
 
 /** How much of a Command Center answer the voice model gets: it speaks a summary, not the whole table. */
@@ -24,7 +26,7 @@ function firstSentence(text: string): string {
 export function voiceInstructions(connection: Pick<CommandCenterConnection, 'user' | 'tools'>): string {
   const reads = connection.tools.filter(tool => tool.readOnly);
   return [
-    `You are The AI, Kinetic Scaling's voice assistant, talking with ${connection.user.name} (${connection.user.role}).`,
+    `You are Bash AI, Kinetic Scaling's voice assistant, talking with ${connection.user.name} (${connection.user.role}).`,
     'Speak briefly and naturally, as in a phone call. Summarize numbers and lists; never read out long tables or ids.',
     "For anything to be done in the browser (opening sites, filling forms, following a company SOP), call browser_task with one complete, specific instruction, as the person would type it. The browser agent works in the person's side panel and you are told when it ends. Say you have started it, then wait for that message and tell the person the result.",
     'For questions about the company (clients, ad accounts, appointments, calls, payments, team, meetings, SOPs), call command_center_lookup first instead of guessing.',
@@ -196,16 +198,32 @@ export function VoiceBar({
   useEffect(() => () => agent.current?.stop(), []);
 
   const live = state !== null && state !== 'closed';
+  // The wave follows whoever is talking: the answer while Bash AI speaks, the person otherwise.
+  const level = () => {
+    const levels = agent.current?.levels();
+    if (!levels) return 0;
+    return state === 'speaking' ? levels.output : levels.input;
+  };
+  const mode: WaveMode = live && state ? state : 'idle';
   return (
     <section
       aria-label={t('voice.title')}
-      className="mx-2 mb-2 flex flex-col gap-2 rounded-2xl border border-nb-sky/40 bg-nb-bg p-3 text-sm shadow-soft">
-      <div className="flex flex-wrap items-center gap-2">
+      className="relative mx-2 mb-1 mt-2 overflow-hidden rounded-2xl border border-nb-sky/30 bg-gradient-to-b from-nb-surface to-nb-bg p-3 text-sm shadow-soft">
+      {/* A soft brand glow behind the wave while the conversation is live. */}
+      {live ? (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-6 top-6 h-16 rounded-full bg-gradient-to-r from-cyan-500/20 via-blue-600/25 to-violet-600/20 blur-2xl"
+        />
+      ) : null}
+      <div className="relative flex flex-wrap items-center gap-2">
         <span
           aria-hidden
-          className={`size-2.5 rounded-full ${live ? (state === 'speaking' ? 'animate-pulse bg-nb-sky' : 'bg-emerald-500') : 'bg-nb-border'}`}
+          className={`size-2 rounded-full ${live ? (state === 'speaking' ? 'animate-pulse bg-nb-sky' : 'bg-emerald-500') : 'bg-nb-border'}`}
         />
-        <span className="font-medium">{state ? t(STATE_KEYS[state]) : t('voice.title')}</span>
+        <span className="font-medium" aria-live="polite">
+          {state ? t(STATE_KEYS[state]) : t('voice.title')}
+        </span>
         <span className="flex-1" />
         {!live && agents.length > 1 ? (
           <select
@@ -223,7 +241,7 @@ export function VoiceBar({
         {live ? (
           <button
             type="button"
-            className="rounded-lg bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700"
+            className="rounded-full bg-red-600 px-3.5 py-1 text-xs font-medium text-white shadow-sm hover:bg-red-700"
             onClick={end}>
             {t('voice.end')}
           </button>
@@ -231,32 +249,35 @@ export function VoiceBar({
           <>
             <button
               type="button"
-              className="rounded-lg bg-nb-accent px-3 py-1 text-xs font-medium text-white hover:bg-nb-accent-strong"
+              className="rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 px-3.5 py-1 text-xs font-medium text-white shadow-sm hover:from-cyan-400 hover:to-blue-500"
               onClick={() => void start()}>
               {t('voice.start')}
             </button>
             <button
               type="button"
-              className="rounded-lg px-2 py-1 text-xs text-nb-muted hover:bg-nb-surface"
+              className="rounded-full px-2 py-1 text-xs text-nb-muted hover:bg-nb-surface"
               onClick={onClose}>
               {t('voice.close')}
             </button>
           </>
         )}
       </div>
+      <div className="relative my-1">
+        <Waveform mode={mode} level={level} />
+      </div>
       {lines.length ? (
-        <ul className="flex flex-col gap-1 text-xs">
-          {lines.map((line, i) => (
+        <ul className="relative flex max-h-24 flex-col gap-1 overflow-y-auto text-xs">
+          {lines.slice(-3).map((line, i) => (
             <li key={i} className={line.who === 'you' ? 'text-nb-muted' : ''}>
-              <span className="font-medium">{line.who === 'you' ? t('voice.you') : 'The AI'}:</span> {line.text}
+              <span className="font-medium">{line.who === 'you' ? t('voice.you') : 'Bash AI'}:</span> {line.text}
             </li>
           ))}
         </ul>
       ) : !live ? (
-        <p className="text-xs text-nb-muted">{t('voice.hint')}</p>
+        <p className="relative text-center text-xs text-nb-muted">{t('voice.hint')}</p>
       ) : null}
       {error ? (
-        <p role="alert" className="text-xs text-red-700 dark:text-red-300">
+        <p role="alert" className="relative text-xs text-red-700 dark:text-red-300">
           {error}
         </p>
       ) : null}

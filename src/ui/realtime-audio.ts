@@ -28,6 +28,27 @@ export function base64ToFloat(base64: string): Float32Array<ArrayBuffer> {
   return out;
 }
 
+/** How loud a stretch of audio is, 0 to 1: its RMS, scaled so speech reaches the top. */
+export function loudness(samples: Float32Array): number {
+  if (!samples.length) return 0;
+  let sum = 0;
+  for (const s of samples) sum += s * s;
+  return Math.min(1, Math.sqrt(sum / samples.length) * 4);
+}
+
+function meter(context: AudioContext): { node: AnalyserNode; level: () => number } {
+  const node = context.createAnalyser();
+  node.fftSize = 1024;
+  const buffer = new Float32Array(node.fftSize);
+  return {
+    node,
+    level: () => {
+      node.getFloatTimeDomainData(buffer);
+      return loudness(buffer);
+    },
+  };
+}
+
 /** Why the microphone could not start: not allowed, missing, or another failure. */
 export type MicError = 'not-allowed' | 'no-microphone' | 'error';
 
@@ -37,6 +58,8 @@ export class MicStream {
     private readonly stream: MediaStream,
     private readonly context: AudioContext,
     private readonly node: AudioWorkletNode,
+    /** How loud the person is right now, 0 to 1: for the wave in the panel. */
+    readonly level: () => number,
   ) {}
 
   static async start(onChunk: (base64: string) => void): Promise<MicStream | MicError> {
@@ -58,7 +81,9 @@ export class MicStream {
       const node = new AudioWorkletNode(context, 'voice-capture');
       node.port.onmessage = event => onChunk(pcm16Base64(event.data as Float32Array));
       source.connect(node);
-      return new MicStream(stream, context, node);
+      const input = meter(context);
+      source.connect(input.node);
+      return new MicStream(stream, context, node, input.level);
     } catch {
       stream.getTracks().forEach(track => track.stop());
       return 'error';
@@ -81,6 +106,17 @@ export class PcmPlayer {
   #context = new AudioContext({ sampleRate: VOICE_SAMPLE_RATE });
   #next = 0;
   #playing = new Set<AudioBufferSourceNode>();
+  /** Every chunk plays through this meter on its way out, so the wave follows the voice. */
+  #output = meter(this.#context);
+
+  constructor() {
+    this.#output.node.connect(this.#context.destination);
+  }
+
+  /** How loud the answer is right now, 0 to 1. */
+  level(): number {
+    return this.#playing.size ? this.#output.level() : 0;
+  }
 
   /** Whether any of the answer is still playing. */
   get speaking(): boolean {
@@ -94,7 +130,7 @@ export class PcmPlayer {
     buffer.copyToChannel(samples, 0);
     const source = this.#context.createBufferSource();
     source.buffer = buffer;
-    source.connect(this.#context.destination);
+    source.connect(this.#output.node);
     const at = Math.max(this.#context.currentTime + 0.02, this.#next);
     source.start(at);
     this.#next = at + buffer.duration;
