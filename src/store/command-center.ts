@@ -482,3 +482,30 @@ export async function requestVoiceSession(
   if (!response.ok) throw new CommandCenterError(await oauthError(response), response.status);
   return (await response.json()) as VoiceSessionGrant;
 }
+
+/** A conversation for Command Center's history (Assistant → Bash AI chats); see src/agent/history.ts. */
+export interface ChatForCommandCenter {
+  externalId: string;
+  title: string;
+  status: string;
+  startedAt: string;
+  lastMessageAt: string;
+  transcript: unknown[];
+}
+
+/**
+ * Keeps a conversation in Command Center, under the signed-in person. The whole transcript is sent each time and
+ * replaces the stored one, so a save that fails is made good by the next. Nothing is sent when signed out.
+ */
+export async function saveChatToCommandCenter(chat: ChatForCommandCenter): Promise<void> {
+  const connection = await commandCenterStorage.get();
+  if (!connection) return;
+  const response = await withCommandCenterToken(token =>
+    fetch(`${connection.url}/api/ai-browser/conversations`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(chat),
+    }),
+  );
+  if (!response.ok) throw new CommandCenterError(await oauthError(response), response.status);
+}

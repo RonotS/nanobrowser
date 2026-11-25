@@ -42,6 +42,8 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, reply) => {
 });
 chrome.alarms?.onAlarm.addListener(() => undefined);
 void runManager.restore().catch(error => console.error('[runs] restore failed', error));
+// Conversations from before Command Center kept the history go there once.
+void runManager.saveAllHistoryOnce().catch(error => console.error('[history] backfill failed', error));
 // Dark became the default (2026-11-25, as Command Center is): a theme still on the old default, System, moves to Dark
 // once. The panel's sun and moon switch it back at any time.
 void chrome.storage.local

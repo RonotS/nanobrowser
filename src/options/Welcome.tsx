@@ -49,7 +49,7 @@ export function Welcome() {
     <div className="nb-wave min-h-full">
       <div className="mx-auto flex min-h-full max-w-2xl flex-col gap-6 p-6 sm:pt-12">
         <Logo height={30} className="self-start" />
-        <h1 className="font-serif text-[28px] font-normal leading-tight">{t('welcome.title')}</h1>
+        <h1 className="text-[26px] font-semibold leading-tight tracking-tight">{t('welcome.title')}</h1>
         <ol aria-label={t('welcome.steps')} className="flex flex-wrap gap-1">
           {STEPS.map((label, i) => (
             <li

@@ -25,3 +25,19 @@ describe('the voice wave', () => {
     expect(barHeight(0, 40, 0, 'idle', 0, true)).toBeGreaterThan(0);
   });
 });
+
+describe('smooth streaming', () => {
+  it('reveals at a steady pace, faster with a backlog, and never past what arrived', async () => {
+    const { nextShown, revealRate } = await import('../SmoothText');
+    expect(revealRate(10)).toBe(90);
+    expect(revealRate(1000)).toBe(3500);
+    // 16 ms at 90 characters a second is about 1.4 characters.
+    expect(nextShown(0, 10, 16)).toBeCloseTo(1.44);
+    // A big backlog clears within about a third of a second.
+    let shown = 0;
+    for (let i = 0; i < 20; i++) shown = nextShown(shown, 1000, 16);
+    expect(shown).toBeGreaterThan(600);
+    expect(nextShown(990, 1000, 1000)).toBe(1000);
+    expect(nextShown(1000, 1000, 16)).toBe(1000);
+  });
+});

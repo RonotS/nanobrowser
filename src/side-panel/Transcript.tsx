@@ -10,7 +10,7 @@ import { AttachmentChips } from './Composer';
 import { t, useLanguage } from '@src/ui/i18n';
 import type { MessageKey } from '@src/ui/i18n';
 import en from '@src/ui/locales/en.json';
-import { Markdown } from './Markdown';
+import { SmoothMarkdown } from './SmoothText';
 import { Activity, phaseOf } from './Activity';
 import { messageTime, messageTimeFull } from './message-time';
 import { ArrowDownIcon, CheckIcon, CopyIcon, FileIcon, PencilIcon, RestartIcon } from '@src/ui/icons';
@@ -143,7 +143,7 @@ export function Transcript({
           {pending?.text ? (
             <li>
               <div className="nb-answer">
-                <Markdown text={pending.text} />
+                <SmoothMarkdown id={pending.id} text={pending.text} streaming />
               </div>
             </li>
           ) : null}
@@ -489,12 +489,13 @@ function RunView({
         streaming?.id === r.id ? (
           streaming.text ? (
             <div key={r.id} className="nb-answer">
-              <Markdown text={streaming.text} />
+              <SmoothMarkdown id={r.id} text={streaming.text} streaming />
             </div>
           ) : null
         ) : r.text ? (
+          // A reply that just finished streaming carries on from where the reveal was; any other shows at once.
           <div key={r.id} className="nb-answer">
-            <Markdown text={r.text} />
+            <SmoothMarkdown id={r.id} text={r.text} streaming={false} />
           </div>
         ) : null,
       )}

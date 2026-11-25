@@ -56,7 +56,7 @@ export function App() {
     <div className="nb-field min-h-full">
       <div className="mx-auto flex min-h-full max-w-6xl flex-col px-3 py-5 sm:px-6 sm:py-8">
         <header className="mb-6 sm:mb-10 sm:px-3">
-          <h1 className="flex flex-wrap items-center gap-x-3 gap-y-2 font-serif text-xl font-normal leading-tight sm:text-[28px]">
+          <h1 className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xl font-semibold leading-tight tracking-tight sm:text-[26px]">
             <Logo height={28} />
             <span>{t('settings.title')}</span>
           </h1>

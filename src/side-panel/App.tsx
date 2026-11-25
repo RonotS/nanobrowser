@@ -34,6 +34,7 @@ import { useShortcuts } from '@src/ui/shortcuts';
 import { AutoNotice } from '@src/ui/auto-notice';
 import { HistoryIcon, LogoMark, MoonIcon, NewChatIcon, SettingsIcon, SunIcon, VoiceIcon } from '@src/ui/icons';
 import { VoiceBar } from './VoiceBar';
+import { roleLabel } from './role-label';
 import {
   commandCenterFetch,
   commandCenterStorage,
@@ -399,9 +400,21 @@ export function App() {
           className="ml-1 flex shrink-0 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-nb-accent">
           <LogoMark size={20} />
         </a>
+        {/* Who is signed in: Chrome's own title bar above shows only the extension's name, so it goes here. */}
+        {commandCenter ? (
+          <span className="ml-1.5 flex min-w-0 flex-1 items-baseline gap-1.5 text-xs" title={commandCenter.user.email}>
+            <span className="truncate font-semibold text-nb-fg">{commandCenter.user.name}</span>
+            {roleLabel(commandCenter.user.role) ? (
+              <span className="shrink-0 rounded-full bg-nb-accent/15 px-1.5 py-px text-[10px] font-medium text-nb-link">
+                {roleLabel(commandCenter.user.role)}
+              </span>
+            ) : null}
+          </span>
+        ) : (
+          <span className="flex-1" />
+        )}
         {/* The title is for screen readers only; the header shows the mark and three buttons. */}
         <h1 className="sr-only">{conversation?.title || t('panel.newChat')}</h1>
-        <span className="flex-1" />
         <IconButton label={t('panel.newChat')} onClick={() => newChat(confirmNewChat)}>
           <NewChatIcon />
         </IconButton>

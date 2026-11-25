@@ -14,7 +14,14 @@ import {
   commandCenterPrompt,
   firstSentence,
 } from '@src/agent/command-center';
-import { callCommandCenterTool, commandCenterFetch, commandCenterStorage, NO_EXTRAS } from '@src/store/command-center';
+import {
+  callCommandCenterTool,
+  commandCenterFetch,
+  commandCenterStorage,
+  NO_EXTRAS,
+  saveChatToCommandCenter,
+} from '@src/store/command-center';
+import { historyTranscript } from '@src/agent/history';
 import { commandCenterBaseUrl } from '@src/store/command-center-providers';
 import { GENERATE_IMAGE, GENERATE_VIDEO, mediaAgentTools, mediaRequest } from '@src/agent/media';
 import { extensionOf, generateImages, generateVideo } from '@src/llm/media';
@@ -580,6 +587,7 @@ export class RunManager {
         if (!title) return;
         const updated = await updateConversation(command.conversationId, { title, titleByUser: true });
         if (updated) this.emit(command.conversationId, { type: 'conversation', conversation: updated });
+        void this.saveHistory(command.conversationId);
         return this.#history(connection);
       }
       case 'delete':
@@ -1258,6 +1266,46 @@ export class RunManager {
     };
   }
 
+  /**
+   * Keeps a conversation in Command Center (Assistant → Bash AI chats), as the panel shows it: messages, answers,
+   * step labels, files by name. Best effort: the whole transcript goes each time, so a failed save is made good by the
+   * next. Nothing is sent when the person is not signed in to Command Center.
+   */
+  async saveHistory(conversationId: string): Promise<boolean> {
+    try {
+      if (!(await commandCenterStorage.get())) return false;
+      const conversation = await getConversation(conversationId);
+      if (!conversation) return true;
+      const transcript = historyTranscript(toDisplay(await activeBranch(conversationId)));
+      if (!transcript.length) return true;
+      await saveChatToCommandCenter({
+        externalId: conversation.id,
+        title: conversation.title,
+        status: conversation.status,
+        startedAt: conversation.createdAt,
+        lastMessageAt: conversation.updatedAt,
+        transcript,
+      });
+      return true;
+    } catch (error) {
+      console.warn('[history] not saved to Command Center', error);
+      return false;
+    }
+  }
+
+  /**
+   * Once: every conversation already in this browser goes to Command Center's history too. Marked done only when every
+   * one was saved, so it is tried again at the next start while not signed in, or while Command Center cannot take them.
+   */
+  async saveAllHistoryOnce(): Promise<void> {
+    const key = 'kai.historyBackfilled';
+    if ((await chrome.storage.local.get(key))[key]) return;
+    if (!(await commandCenterStorage.get())) return;
+    let saved = true;
+    for (const conversation of await listConversations()) saved = (await this.saveHistory(conversation.id)) && saved;
+    if (saved) await chrome.storage.local.set({ [key]: true });
+  }
+
   /** The Command Center tools and prompt section for a run: none when the user is not signed in. */
   async #commandCenterSetup(): Promise<{ agentTools: AgentTool[]; prompt: string }> {
     const connection = await commandCenterStorage.get();
@@ -1557,6 +1605,8 @@ export class RunManager {
         await this.#setStatus(record, 'failed', message);
       } finally {
         runEnded(record, end ?? {});
+        // The conversation goes to Command Center's history (Assistant → Bash AI chats) as it now stands.
+        void this.saveHistory(conversationId);
         // A run that finished well counts towards the card that asks for a store rating.
         if (endOf(record.status, record.outcome) === 'success') {
           void ratingStorage.set(u => afterFinishedRun(u, new Date(), conversationId)).catch(() => undefined);

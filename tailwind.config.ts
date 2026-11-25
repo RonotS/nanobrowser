@@ -20,9 +20,10 @@ export default {
         'nb-link': token('link'),
         'nb-auto': token('auto'),
       },
-      // System fonts only, as in the dsh.directory site.
+      // Inter, as in Command Center (shipped in public/fonts), then the system's fonts.
       fontFamily: {
         sans: [
+          'Inter',
           'ui-sans-serif',
           'system-ui',
           'sans-serif',

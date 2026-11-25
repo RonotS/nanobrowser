@@ -88,3 +88,18 @@ describe('the voice agent', () => {
     });
   });
 });
+
+describe('the header', () => {
+  it('writes Command Center roles as people do', async () => {
+    const { roleLabel } = await import('../role-label');
+    expect(['developer', 'media buyer', 'csm', 'isa', 'va', '__no_position__', ''].map(roleLabel)).toEqual([
+      'Developer',
+      'Media Buyer',
+      'CSM',
+      'ISA',
+      'VA',
+      '',
+      '',
+    ]);
+  });
+});
