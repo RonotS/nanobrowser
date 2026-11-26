@@ -1,7 +1,7 @@
-# Security Policy
+# Security
 
-## Reporting a Vulnerability
+If you find a security problem in Bash AI (a way to see someone else's data, use the company's keys, get around the Ask mode, or anything similar), please do not post it in a public issue, pull request or Discord channel.
 
-If you find a security vulnerability, please **do not** disclose it in public issues, pull requests or discussions.
+Report it privately to the repository owner, RonotS (Aaron), either by direct message or through a [private security advisory](https://github.com/RonotS/nanobrowser/security/advisories/new) on this repository. Include what you did, what happened, and what you expected.
 
-Report it through a [GitHub Security Advisory](https://github.com/nanobrowser/nanobrowser/security/advisories/new), so it can be fixed before it is made public.
+Never paste passwords, API keys, tokens or card numbers into a report. Describe where they are instead.

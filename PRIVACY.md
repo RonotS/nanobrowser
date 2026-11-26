@@ -1,62 +1,45 @@
-# Privacy Policy for Nanobrowser
+# Privacy: what Bash AI sends, and where
 
-## Introduction
-
-[Nanobrowser](https://github.com/nanobrowser/nanobrowser) is an open-source AI web automation extension for Chrome and Edge. This Privacy Policy explains how it handles your data.
-
-## Open source
-
-Nanobrowser is licensed under the Apache License 2.0. All source code is public in our [GitHub repository](https://github.com/nanobrowser/nanobrowser), so you can check everything this policy says.
+Bash AI is Kinetic Scaling's internal AI assistant for Chrome. This page says what leaves your browser when you use it, and where it goes. It covers this build of the extension; the Command Center side is in the `kinetic-command-center` repository.
 
 ## What stays in your browser
 
-- Nanobrowser runs entirely in your browser. There is no Nanobrowser server, and no account.
-- Your conversations, attachments, saved shortcuts, custom instructions, site settings and other settings are stored locally in your browser.
-- Your logins and cookies never leave your browser through Nanobrowser.
-- The values of password, payment-card and one-time-code fields are hidden from the AI model.
+- Your conversations, attachments, shortcuts, site settings and other settings are stored in your browser.
+- Your logins and cookies for other sites never leave your browser through Bash AI.
+- The values of password, payment-card and one-time-code fields on a page are hidden from the AI model.
+- There are no AI provider keys in the browser. Bash AI keeps only your Command Center sign-in (a 12-hour access token and a 90-day refresh token) in the extension's storage.
 
-## What is sent to the Nanobrowser team
+## What goes to Command Center
 
-Nanobrowser sends its developers only the small amounts of data below. Nothing sent has an ID. The daily count cannot be linked from one day to another, and the usage counts name no one. It never includes your pages, the sites you visit, your messages, your files, your keys or your settings' text.
+Bash AI signs in with your Command Center account and sends everything through Command Center:
 
-- **A daily count of users** (on by default; turn it off in Settings → Data → **Anonymous daily count**). At most once a day, on a day you use Nanobrowser: the version, the browser (Chrome, Edge or other), the language of the screens, the week you installed Nanobrowser, whether it is the first time this week and this month, and whether you have set up a model or run a task that day.
-- **Usage counts** (on unless you turn them off, on the welcome page or in Settings → Data → **Help improve Nanobrowser**). At most once a day, with the version, the browser and the language of the screens, totals for a past day: how many tasks started, were resumed or continued, and how they ended, how long they were and how much text the model read, which tools ran and which errors happened (as fixed codes), which kind of provider, catalogue model, reasoning effort and mode were used, whether the model can see images, how often features such as attachments, shortcuts, voice input and Retry were used, how often a long conversation was shortened to fit, what you have set up (the kinds of providers, whether the default model runs on your computer, whether voice input and custom instructions are set, how many site rules of each kind you have), and how often confirmation cards were shown, approved or declined, and how often a step was handed to you. If you turned off the "Help improve Nanobrowser" switch of the earlier version, both start off.
+- **Model requests.** Your messages, attachments, and the content of the tabs it works in (including screenshots, for models that can see images) go to Command Center, which forwards them to the model's provider (Anthropic, OpenAI or xAI) with the company's key and streams the answer back. Page content is sent only while a task is running.
+- **Command Center tools.** When Bash AI looks something up or changes something in Command Center (a client, a task, an SOP), the request goes to Command Center as you, limited to your role.
+- **Chat history.** After each task, the conversation is saved in Command Center (Assistant → Bash AI chats), where you see your own and managers see everyone's. What is saved is what the panel showed: your messages, the answers, one short label per step, and file names. It never includes the text of pages, screenshots, or what was typed into a page. Command Center also adds saved chats to Bash AI's search, so you can find your earlier conversations.
+- **Memories.** A fact you ask Bash AI to remember is saved in Command Center, the same place as the in-app assistant's memories, and can be removed on the Memories page.
+- **Dictation and media.** Voice recordings for dictation, and requests to make an image or a video, go through Command Center to OpenAI or xAI. Recordings are not kept.
+- **The company brief.** Bash AI reads a brief written for you from Command Center (systems, your role and ClickUp list, SOPs, the team's rules and memories) and puts it in the model's instructions.
 
-This data goes to PostHog, a product analytics service, in the United States. Nanobrowser asks PostHog not to store your IP address or work out your location, and to create no profile of you. The data is kept for one year.
+## The voice agent
 
-When you remove Nanobrowser, Chrome opens a short optional Google Form that asks why. Nanobrowser fills in nothing in it; you can answer any question or none. Google asks you to sign in, so that each person answers once, but the form does not record who you are.
+For a live voice conversation, Command Center gives the panel a secret that works for one minute. The panel then connects straight to the provider (xAI's Grok, or OpenAI), and your voice and its answers stream between your browser and the provider. Command Center does not receive the audio.
 
-## What is sent to the providers you choose
+## No analytics
 
-To work, Nanobrowser sends data directly from your browser to the AI providers you set up, and only to them:
+This build sends no usage data. Nanobrowser's anonymous daily count and usage counts are switched off (no analytics key is set), and the uninstall survey is removed.
 
-- **Your model provider** (for example Anthropic, OpenAI, Google, OpenRouter, or a local server such as Ollama): your messages, your attachments, the content of the tabs the agent works in, and, for models that can see images, screenshots of those tabs.
-- **Your voice model provider** (OpenAI or Google), only if you turn on voice input: the audio of each recording. Recordings are not kept.
+## The providers
 
-How these providers handle your data is governed by their own privacy policies. If you use a local model, the data stays on your computer.
-
-## API keys
-
-- You provide your own API keys.
-- Keys are stored locally in your browser, and are sent only to their own provider.
-- Keys are never included in exports and never written to logs.
-
-## Updating from an earlier version
-
-When Nanobrowser updates from its earlier version, it moves your providers and API keys, your default model, your saved prompts and your blocked sites into the new version, in your browser, and deletes the rest of the earlier version's data. Your earlier conversations are kept in your browser until you export or delete them in Settings → Data; nothing is sent anywhere.
+How Anthropic, OpenAI and xAI handle what they receive is governed by the company's agreements with them and their own policies.
 
 ## Your control
 
-- Delete a conversation at any time, or delete all your data in Settings → Data. Your two choices about what is sent stay as you set them.
-- Turn off the daily count and the usage counts at any time in Settings → Data; what was counted and not yet sent is deleted at once.
-- Uninstall the extension to remove all its local data.
+- Delete a conversation in the panel to remove it from your browser. Its copy in Command Center stays; ask a manager to remove it.
+- Sign out in Settings → Command Center to remove your sign-in from the extension. Deactivating your Command Center account also stops Bash AI.
+- Remove the extension to delete everything it stored in your browser.
 
-## Changes to this policy
+## Questions
 
-We may update this policy. Changes are published in the GitHub repository.
+Ask Aaron (GitHub: RonotS).
 
-## Contact
-
-Questions or concerns? Contact us at cws@felight.xyz.
-
-Last updated: October 13, 2026
+Last updated: November 25, 2026

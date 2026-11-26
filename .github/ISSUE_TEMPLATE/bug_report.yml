@@ -1,18 +1,18 @@
-name: Bug Report
-description: Create a report to help us improve Nanobrowser
+name: Bug report
+description: Something in Bash AI did not work as it should
 title: '[Bug]: '
-labels: ['bug', 'needs-triage']
+labels: ['bug']
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for taking the time to fill out this bug report!
+        Never paste passwords, API keys, tokens or card numbers here. A security problem goes privately to the owner (see SECURITY.md).
 
   - type: input
     id: version
     attributes:
-      label: Nanobrowser Version
-      description: What version of Nanobrowser are you running?
+      label: Bash AI version
+      description: Shown in Settings → About.
       placeholder: e.g., 0.3.0
     validations:
       required: true
@@ -20,77 +20,42 @@ body:
   - type: textarea
     id: description
     attributes:
-      label: Bug Description
-      description: A clear and concise description of what the bug is
-      placeholder: Tell us what happened...
+      label: What happened
+      placeholder: What you asked, what Bash AI did, and what you expected.
     validations:
       required: true
 
   - type: textarea
     id: reproduction
     attributes:
-      label: Steps to Reproduce
-      description: Steps to reproduce the behavior
+      label: Steps to reproduce
       placeholder: |
-        1. My prompt is '...'
-        2. I click '...'
-        3. I see '...'
+        1. I asked '...'
+        2. It opened '...'
+        3. I saw '...'
     validations:
       required: true
 
   - type: dropdown
-    id: browser
+    id: model
     attributes:
-      label: Browser
-      description: Which browser are you using? Chrome and Edge are supported.
+      label: Model
       options:
-        - Chrome
-        - Edge
-        - Other (please specify in description)
-    validations:
-      required: true
-
-  - type: dropdown
-    id: llm_provider
-    attributes:
-      label: LLM Service Provider
-      description: Which LLM service provider are you using?
-      options:
-        - Anthropic
+        - Claude
         - OpenAI
-        - Google Gemini
-        - OpenRouter
-        - xAI Grok
-        - DeepSeek
-        - Mistral
-        - Ollama
-        - LM Studio
-        - Other OpenAI-compatible (please specify in description)
+        - Grok
+        - Voice agent
+        - Not sure
     validations:
       required: true
 
   - type: input
-    id: model
+    id: role
     attributes:
-      label: Model
-      description: Which model and reasoning effort were you using?
-      placeholder: e.g., claude-sonnet-5-5, Low
-    validations:
-      required: true
-
-  - type: dropdown
-    id: mode
-    attributes:
-      label: Mode
-      description: Which mode was the agent in?
-      options:
-        - Ask
-        - Auto
-    validations:
-      required: false
+      label: Your Command Center role
+      placeholder: e.g., CSM, Media Buyer, ISA
 
   - type: textarea
-    id: screenshots
+    id: context
     attributes:
-      label: Screenshots
-      description: If applicable, add screenshots to help explain your problem
+      label: Screenshots or other details
