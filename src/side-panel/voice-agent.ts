@@ -231,6 +231,19 @@ export class VoiceAgent {
     this.#askForReply();
   }
 
+  /**
+   * Mutes or unmutes the microphone (Aaron 2026-11-25: it keeps listening while the browser works). Muting also drops
+   * what the voice model had half-heard, so a cut-off sentence is not answered. Answers still play while muted.
+   */
+  setMuted(muted: boolean): void {
+    this.#mic?.setMuted(muted);
+    if (muted) this.#send({ type: 'input_audio_buffer.clear' });
+  }
+
+  get muted(): boolean {
+    return this.#mic?.muted ?? false;
+  }
+
   /** Asks for a reply now, or as soon as the one being made is done. */
   #askForReply(): void {
     if (this.#replies.ask()) this.#send({ type: 'response.create' });

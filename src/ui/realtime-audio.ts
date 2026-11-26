@@ -90,6 +90,18 @@ export class MicStream {
     }
   }
 
+  #muted = false;
+
+  /** Muted: the microphone's track is switched off, so only silence reaches the voice model until it is unmuted. */
+  setMuted(muted: boolean): void {
+    this.#muted = muted;
+    this.stream.getAudioTracks().forEach(track => (track.enabled = !muted));
+  }
+
+  get muted(): boolean {
+    return this.#muted;
+  }
+
   stop(): void {
     this.node.port.onmessage = null;
     this.node.disconnect();

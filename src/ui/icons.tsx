@@ -73,6 +73,14 @@ export const MicIcon = (p: IconProps) => (
   </Svg>
 );
 
+/** A muted microphone: the mic with a line through it. */
+export const MicOffIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="9" y="3" width="6" height="11" rx="3" />
+    <path d="M5 11a7 7 0 0 0 14 0M12 18v3M4 4l16 16" />
+  </Svg>
+);
+
 /** Switches to light: a sun. */
 export const SunIcon = (p: IconProps) => (
   <Svg {...p}>

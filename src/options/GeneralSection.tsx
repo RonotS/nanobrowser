@@ -142,6 +142,13 @@ export function GeneralSection() {
             <option value="dark">{t('theme.dark')}</option>
           </Select>
         </SettingsRow>
+        <SettingsRow label={t('general.followAgent')} description={t('general.followAgentHint')}>
+          <Switch
+            aria-label={t('general.followAgent')}
+            checked={settings.followAgent !== false}
+            onChange={on => void settingsStorage.set(s => ({ ...s, followAgent: on }))}
+          />
+        </SettingsRow>
         <SettingsRow label={t('general.pageBorder')} description={t('general.pageBorderHint')}>
           <Switch
             aria-label={t('general.pageBorder')}

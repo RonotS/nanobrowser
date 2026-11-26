@@ -32,6 +32,7 @@ describe('the voice agent', () => {
   it('keeps spoken answers short and never reads links aloud', () => {
     const text = voiceInstructions(CONNECTION);
     expect(text).toContain('Never read out a link');
+    expect(text).toContain("Show, don't only tell");
     expect(text).toContain('Your ClickUp page is ready');
     expect(
       spokenTaskAnswer(

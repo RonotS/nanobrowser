@@ -552,6 +552,7 @@ export function App() {
             if (client && state.conversationId) client.send({ type: 'stop', conversationId: state.conversationId });
           }}
           onClose={() => setVoiceOpen(false)}
+          saveHistory={!temporary}
         />
       ) : null}
       {confirmNewChat ? (

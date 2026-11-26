@@ -38,6 +38,11 @@ export interface Settings {
   analyticsStats: boolean;
   /** A glowing border on the pages a working run acts on. */
   pageBorder: boolean;
+  /**
+   * The browser shows what the agent is doing: a tab it opens or switches to comes to the front even when the
+   * person is on another tab (Bash AI: on by default; Aaron kept asking the voice agent to show the page).
+   */
+  followAgent: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -58,6 +63,7 @@ export const DEFAULT_SETTINGS: Settings = {
   analyticsPing: true,
   analyticsStats: true,
   pageBorder: true,
+  followAgent: true,
 };
 
 /** Stored settings over the defaults, so a field added later has its default. */

@@ -552,5 +552,10 @@
   "cc.dictation": "語音輸入",
   "voice.minimize": "最小化為聲波",
   "voice.expand": "顯示語音面板",
-  "voice.fallback": "{from} 暫時無法使用，本次通話改用 {to}。"
+  "voice.fallback": "{from} 暫時無法使用，本次通話改用 {to}。",
+  "voice.mute": "麥克風靜音",
+  "voice.unmute": "取消麥克風靜音",
+  "voice.muted": "已靜音",
+  "general.followAgent": "顯示 Bash AI 的操作",
+  "general.followAgentHint": "Bash AI 開啟或切換到的分頁會顯示在最前面，即使你正在看其他分頁。"
 }

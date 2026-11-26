@@ -552,5 +552,10 @@
   "cc.dictation": "Dictation",
   "voice.minimize": "Minimize to the wave",
   "voice.expand": "Show the voice panel",
-  "voice.fallback": "{from} isn't available right now, so this call uses {to}."
+  "voice.fallback": "{from} isn't available right now, so this call uses {to}.",
+  "voice.mute": "Mute microphone",
+  "voice.unmute": "Unmute microphone",
+  "voice.muted": "Muted",
+  "general.followAgent": "Show what Bash AI is doing",
+  "general.followAgentHint": "A tab Bash AI opens or switches to comes to the front, even when you are on another tab."
 }

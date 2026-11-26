@@ -8,12 +8,20 @@ import { CloseIcon } from '@src/ui/icons';
 
 export function TabBar({ tabs, onUnshare }: { tabs: ScopeTab[]; onUnshare: (tabId: number) => void }) {
   if (!tabs.length) return null;
+  // One row that scrolls sideways (Aaron 2026-11-25: the chips took several rows above the composer). A mouse wheel
+  // scrolls it too; each chip's title is cut short so more of them fit.
   return (
-    <ul aria-label={t('tabs.bar')} data-role="tab-chips" className="flex flex-wrap gap-1 px-2 pb-1">
+    <ul
+      aria-label={t('tabs.bar')}
+      data-role="tab-chips"
+      onWheel={event => {
+        if (event.deltaY && !event.deltaX) event.currentTarget.scrollLeft += event.deltaY;
+      }}
+      className="flex flex-nowrap gap-1 overflow-x-auto px-2 pb-1 [scrollbar-width:thin]">
       {tabs.map(tab => (
         <li
           key={tab.tabId}
-          className="flex min-w-0 max-w-full items-center gap-1 rounded-full border border-nb-accent/15 bg-nb-surface px-2 py-0.5 text-xs">
+          className="flex max-w-52 shrink-0 items-center gap-1 rounded-full border border-nb-accent/15 bg-nb-surface px-2 py-0.5 text-xs">
           {tab.favIconUrl && /^https?:/.test(tab.favIconUrl) ? (
             <img src={tab.favIconUrl} alt="" className="size-3 shrink-0" referrerPolicy="no-referrer" />
           ) : null}

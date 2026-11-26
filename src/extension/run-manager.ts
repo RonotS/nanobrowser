@@ -299,7 +299,10 @@ export class RunManager {
       decideWrite: question => this.permissions.decide(this.#modes.get(conversationId) ?? 'ask', question),
       urlPolicy: { allow: [], deny: [], blocked: this.permissions.blockedSites() },
       // The watching rule: a tab becomes visible only while the user is on the conversation's tabs.
-      reveal: () => this.scope.watching(conversationId),
+      // The view follows the agent while the person is on one of its tabs, and always with "Show what Bash AI is doing".
+      reveal: async () =>
+        ((await settingsStorage.get()) ?? DEFAULT_SETTINGS).followAgent !== false ||
+        this.scope.watching(conversationId),
       onTabJoined: (tabId, how) => {
         if (how === 'shared') return;
         void (async () => {
