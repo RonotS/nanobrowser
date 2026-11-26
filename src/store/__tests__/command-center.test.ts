@@ -318,6 +318,21 @@ describe("Bash AI's own tools and the brief", () => {
     ]);
   });
 
+  it("reads the side views from Command Center with the person's token", async () => {
+    stubChrome({ 'kai.commandCenter': connection({ expiresAt: new Date(Date.now() + 3_600_000).toISOString() }) });
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+      urls.push(String(url));
+      expect(new Headers(init.headers).get('Authorization')).toMatch(/^Bearer /);
+      if (String(url).endsWith('/api/ai-browser/panel')) return Response.json({ data: { views: ['tasks', 'lists'] } });
+      return Response.json({ data: { view: 'tasks', tasks: [], source: 'clickup' } });
+    });
+    const { readPanel, readPanelViews } = await import('../command-center');
+    expect(await readPanelViews()).toEqual(['tasks', 'lists']);
+    expect(await readPanel('tasks')).toMatchObject({ tasks: [], source: 'clickup' });
+    expect(urls).toEqual([`${BASE}/api/ai-browser/panel`, `${BASE}/api/ai-browser/panel?view=tasks`]);
+  });
+
   it('keeps working with a Command Center that has no brief yet', async () => {
     stubChrome({ 'kai.commandCenter': connection({ expiresAt: new Date(Date.now() + 60_000).toISOString() }) });
     vi.stubGlobal('fetch', async (url: string) => {

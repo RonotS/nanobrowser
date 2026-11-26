@@ -48,16 +48,21 @@ import {
   commandCenterFetch,
   commandCenterStorage,
   commandCenterUrl,
+  readPanelViews,
   setViewAs,
   signInToCommandCenter,
   viewAsNoticeStorage,
 } from '@src/store/command-center';
+import type { PanelView } from '@src/store/command-center';
 import { commandCenterBaseUrl } from '@src/store/command-center-providers';
 import type { TranscriptionSpec } from '@src/llm/transcribe';
 import { createModel } from '@src/llm/providers';
 import type { ChatModel } from '@src/llm/providers';
 import { TEACH_MODEL } from '@src/llm/teach';
 import { TeachVideo } from './TeachVideo';
+import { PanelRail } from './PanelRail';
+import type { RailView } from './PanelRail';
+import { SideView } from './SideView';
 
 const NO_PROVIDERS: ProviderConfig[] = [];
 const NO_KEYS: Record<string, string> = {};
@@ -174,6 +179,9 @@ export function App() {
   const [temporaryDraft, setTemporaryDraft] = useState(false);
   /** Text to put back into the composer: queued messages returned on Stop, or one taken back to edit. */
   const [draft, setDraft] = useState('');
+  // The side views (PanelRail): which ones Command Center opens to this person's role, and the one shown.
+  const [railViews, setRailViews] = useState<PanelView[]>([]);
+  const [view, setView] = useState<RailView>('chat');
   /** Files attached to the next message, already in the blob store. */
   const [files, setFiles] = useState<PendingFile[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
@@ -447,6 +455,33 @@ export function App() {
     else sendMessage(`/${item.command}`);
   };
 
+  // Which side views this person (or whoever a developer views as) may open; read again when that changes.
+  const railKey = commandCenter ? `${commandCenter.user.id}:${commandCenter.viewer?.id ?? ''}` : '';
+  useEffect(() => {
+    if (!railKey) {
+      setRailViews([]);
+      return;
+    }
+    let live = true;
+    readPanelViews()
+      .then(views => live && setRailViews(views))
+      .catch(() => live && setRailViews([]));
+    return () => {
+      live = false;
+    };
+  }, [railKey]);
+  useEffect(() => {
+    if (view !== 'chat' && !railViews.includes(view)) setView('chat');
+  }, [railViews, view]);
+  // A card that needs the person (an approval, a question) brings the chat back, so a task never waits out of sight.
+  useEffect(() => {
+    if (state.prompts.length) setView('chat');
+  }, [state.prompts.length]);
+  const askFromSide = (text: string) => {
+    setDraft(text);
+    setView('chat');
+  };
+
   if (failure) return <p className="p-4 text-sm text-red-700 dark:text-red-300">{failure}</p>;
   // The quick start above the composer: at most three pinned shortcuts, or the fixed starters.
   const pinned = shortcuts.filter(s => s.pinned).slice(0, 3);
@@ -555,232 +590,260 @@ export function App() {
           saveHistory={!temporary}
         />
       ) : null}
-      {confirmNewChat ? (
-        <div className="flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
-          <span className="flex-1">{t('panel.newChatRunning')}</span>
-          <button type="button" className="underline" onClick={() => newChat(true)}>
-            {t('panel.newChatConfirm')}
-          </button>
-          <button type="button" className="underline" onClick={() => setConfirmNewChat(false)}>
-            {t('common.cancel')}
-          </button>
-        </div>
-      ) : null}
-      {viewAsNotice ? (
-        <div className="flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
-          <span className="flex-1">{t('viewAs.ended', { reason: viewAsNotice })}</span>
-          <button type="button" className="underline" onClick={() => void viewAsNoticeStorage.set(null)}>
-            {t('common.close')}
-          </button>
-        </div>
-      ) : null}
-      {temporary ? (
-        <div
-          role="status"
-          className="flex items-center gap-2 border-b border-nb-border/60 bg-nb-surface px-3 py-1 text-[11px] text-nb-muted">
-          <TemporaryIcon size={13} />
-          <span className="flex-1">{t('panel.temporary.banner')}</span>
-        </div>
-      ) : null}
-      {!empty ? (
-        <Transcript
-          entries={state.entries}
-          streaming={state.streaming}
-          live={
-            state.status === 'running' || state.status === 'awaiting_user'
-              ? { startedAt: state.startedAt, waiting: state.status === 'awaiting_user' }
-              : undefined
-          }
-          actions={
-            state.conversationId && client
-              ? {
-                  idle: !active,
-                  edit: (entryId, text) =>
-                    startRun({ type: 'edit', conversationId: state.conversationId!, entryId, text }),
-                  restart: entryId => startRun({ type: 'restart', conversationId: state.conversationId!, entryId }),
-                  retry: () => startRun({ type: 'retry', conversationId: state.conversationId! }),
-                }
-              : undefined
-          }
-        />
-      ) : (
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-          <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
-            {state.loaded ? <LogoMark size={40} /> : null}
-            {state.loaded ? (
-              <p className="max-w-xs text-[24px] font-normal leading-tight text-nb-fg">{t('panel.empty')}</p>
-            ) : (
-              <p className="text-sm text-nb-muted">{t('panel.loading')}</p>
-            )}
-          </div>
-          {/* With no model, the no-model card above the composer takes the quick start's place. */}
-          {/* The quick start stays hidden while the What's new card shows. */}
-          {state.loaded && models.length && !whatsNew ? (
-            <ul className="flex flex-col items-start gap-2 px-3 pb-2" aria-label={t('panel.starters')}>
-              {starters.map(s => (
-                <li key={s.key} className="max-w-full">
-                  <button
-                    type="button"
-                    title={s.title}
-                    disabled={!model}
-                    className="max-w-full truncate rounded-full border border-nb-border/60 bg-nb-bg px-4 py-2 text-[15px] text-nb-fg shadow-sm transition-colors hover:bg-nb-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-nb-accent disabled:opacity-40"
-                    onClick={s.run}>
-                    {s.label}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
-      )}
-      <TeachVideo file={teachFile} model={teachModel} transcribe={teachTranscribe} onClose={() => setTeachFile(null)} />
-      <HistoryDrawer
-        open={historyOpen}
-        onOpenChange={setHistoryOpen}
-        items={state.history}
-        currentId={state.conversationId}
-        onQuery={queryHistory}
-        onOpen={id => {
-          setHistoryOpen(false);
-          if (!client) return;
-          // A conversation with tabs in this session is shown in its own tab, not copied here (the worker sets that
-          // tab's panel back to it); any other is only shown in this panel until the user takes it up.
-          const tabs = state.history.find(item => item.id === id)?.tabs ?? [];
-          if (tabs.length && !tabs.includes(client.tabId)) showTab(tabs[0]);
-          client.send({ type: 'open', conversationId: id, tabId: client.tabId });
-        }}
-        onRename={(id, title) => client?.send({ type: 'rename', conversationId: id, title })}
-        agentTabsOnEnd={settings.agentTabsOnEnd}
-        onExport={id => client?.send({ type: 'export', conversationId: id })}
-        onDelete={(id, closeAgentTabs, remember) => {
-          if (remember) void settingsStorage.set(s => ({ ...s, agentTabsOnEnd: closeAgentTabs ? 'close' : 'keep' }));
-          client?.send({ type: 'delete', conversationId: id, closeAgentTabs });
-        }}
-      />
-      <div role="status" aria-live="polite" className="sr-only">
-        {t(`status.${state.status}`)}
-      </div>
-      <Cards
-        prompts={state.prompts}
-        answer={(promptId, answer) => client?.send({ type: 'answer', promptId, answer })}
-      />
-      <RunBar
-        status={state.status}
-        onContinue={() => state.conversationId && startRun({ type: 'continue', conversationId: state.conversationId })}
-        onResume={() => state.conversationId && startRun({ type: 'resume', conversationId: state.conversationId })}
-      />
-      <QueueList
-        items={state.queue}
-        onEdit={item => {
-          if (!state.conversationId) return;
-          client?.send({ type: 'unqueue', conversationId: state.conversationId, id: item.id });
-          setDraft(item.text);
-        }}
-        onDelete={item =>
-          state.conversationId && client?.send({ type: 'unqueue', conversationId: state.conversationId, id: item.id })
-        }
-      />
-      <TabBar
-        tabs={state.conversationId ? state.tabs : pendingTabs.map(p => ({ ...p, url: '', origin: 'user' as const }))}
-        onUnshare={tabId => {
-          if (state.conversationId) client?.send({ type: 'unshare-tab', conversationId: state.conversationId, tabId });
-          else setPendingTabs(tabs => tabs.filter(p => p.tabId !== tabId));
-        }}
-      />
-      <Composer
-        active={active}
-        mode={mode}
-        model={model}
-        models={models}
-        noModel={providersRead && !models.length}
-        history={history}
-        notice={
-          <>
-            {/* The What's new card comes first; the notices below still show under it. The store-rating card is not shown:
-                Bash AI is the company's own tool, not in a store. */}
-            {whatsNew ? <WhatsNewCard release={whatsNew} /> : null}
-            {attachError ? (
-              <p className="text-xs text-amber-700 dark:text-amber-300" role="alert">
-                {attachError}
-              </p>
-            ) : autoNotice ? (
-              <AutoNotice onDone={() => setAutoNotice(false)} />
-            ) : providersRead && !models.length ? (
-              <NoticeCard
-                title={t('composer.needModelTitle')}
-                action={{
-                  label: t('composer.setUpModel'),
-                  // Signs in to Command Center from here; when that fails, Settings shows the reason and the button.
-                  run: () =>
-                    void signInToCommandCenter().catch(
-                      () => void chrome.tabs.create({ url: chrome.runtime.getURL('/options.html#providers') }),
-                    ),
-                }}>
-                {t('composer.needModel')}
-              </NoticeCard>
-            ) : held ? (
-              <p className="text-xs text-amber-700 dark:text-amber-300">
-                {t('composer.cardWarning')}{' '}
-                <button
-                  type="button"
-                  className="underline"
-                  onClick={() => {
-                    const text = held;
-                    setHeld(null);
-                    if (client && text)
-                      startRun({
-                        type: 'send',
-                        tabId: client.tabId,
-                        conversationId: state.conversationId,
-                        text,
-                        attachments: [],
-                        context: [],
-                        mode,
-                        model,
-                        reasoning,
-                      });
-                  }}>
-                  {t('composer.sendAnyway')}
+      {/* The side views' strip on the left; the chat keeps its place (and its state) while another view shows. */}
+      <div className="flex min-h-0 flex-1">
+        {railViews.length ? <PanelRail views={railViews} current={view} onPick={setView} /> : null}
+        <div className="flex min-w-0 flex-1 flex-col">
+          {view !== 'chat' ? <SideView key={`${view}:${railKey}`} view={view} onAsk={askFromSide} /> : null}
+          <div className={view === 'chat' ? 'contents' : 'hidden'}>
+            {confirmNewChat ? (
+              <div className="flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
+                <span className="flex-1">{t('panel.newChatRunning')}</span>
+                <button type="button" className="underline" onClick={() => newChat(true)}>
+                  {t('panel.newChatConfirm')}
                 </button>
-              </p>
-            ) : state.error ? (
-              <p className="text-xs text-red-700 dark:text-red-300">
-                {state.error in en ? t(state.error as MessageKey) : state.error}
-              </p>
+                <button type="button" className="underline" onClick={() => setConfirmNewChat(false)}>
+                  {t('common.cancel')}
+                </button>
+              </div>
             ) : null}
-          </>
-        }
-        draft={draft}
-        onDraftUsed={() => setDraft('')}
-        onSend={sendMessage}
-        shortcuts={shortcuts}
-        onLaunch={onLaunch}
-        files={files}
-        quotes={quotes}
-        onRemoveQuote={index => setQuotes(current => current.filter((_, i) => i !== index))}
-        transcribe={transcribe}
-        onOpenSettings={section => void chrome.tabs.create({ url: chrome.runtime.getURL(`/options.html#${section}`) })}
-        onAttach={list => void attach(list)}
-        onScreenshot={() =>
-          client?.send({ type: 'screenshot-tab', tabId: client.tabId, conversationId: state.conversationId })
-        }
-        onTeachVideo={teachModel ? setTeachFile : undefined}
-        onRemoveFile={id => {
-          setFiles(current => current.filter(f => f.ref.id !== id));
-          setAttachError(null);
-        }}
-        sharedTabs={[client?.tabId ?? -1, ...state.tabs.map(x => x.tabId), ...pendingTabs.map(p => p.tabId)]}
-        onShareTab={tab => {
-          if (state.conversationId)
-            client?.send({ type: 'share-tab', conversationId: state.conversationId, tabId: tab.tabId });
-          else setPendingTabs(tabs => [...tabs, tab]);
-        }}
-        onStop={() => state.conversationId && client?.send({ type: 'stop', conversationId: state.conversationId })}
-        onMode={changeMode}
-        reasoning={reasoning}
-        onModel={next => choose({ model: next, reasoning })}
-        onReasoning={next => model && choose({ model, reasoning: next })}
-      />
+            {viewAsNotice ? (
+              <div className="flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
+                <span className="flex-1">{t('viewAs.ended', { reason: viewAsNotice })}</span>
+                <button type="button" className="underline" onClick={() => void viewAsNoticeStorage.set(null)}>
+                  {t('common.close')}
+                </button>
+              </div>
+            ) : null}
+            {temporary ? (
+              <div
+                role="status"
+                className="flex items-center gap-2 border-b border-nb-border/60 bg-nb-surface px-3 py-1 text-[11px] text-nb-muted">
+                <TemporaryIcon size={13} />
+                <span className="flex-1">{t('panel.temporary.banner')}</span>
+              </div>
+            ) : null}
+            {!empty ? (
+              <Transcript
+                entries={state.entries}
+                streaming={state.streaming}
+                live={
+                  state.status === 'running' || state.status === 'awaiting_user'
+                    ? { startedAt: state.startedAt, waiting: state.status === 'awaiting_user' }
+                    : undefined
+                }
+                actions={
+                  state.conversationId && client
+                    ? {
+                        idle: !active,
+                        edit: (entryId, text) =>
+                          startRun({ type: 'edit', conversationId: state.conversationId!, entryId, text }),
+                        restart: entryId =>
+                          startRun({ type: 'restart', conversationId: state.conversationId!, entryId }),
+                        retry: () => startRun({ type: 'retry', conversationId: state.conversationId! }),
+                      }
+                    : undefined
+                }
+              />
+            ) : (
+              <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+                <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+                  {state.loaded ? <LogoMark size={40} /> : null}
+                  {state.loaded ? (
+                    <p className="max-w-xs text-[24px] font-normal leading-tight text-nb-fg">{t('panel.empty')}</p>
+                  ) : (
+                    <p className="text-sm text-nb-muted">{t('panel.loading')}</p>
+                  )}
+                </div>
+                {/* With no model, the no-model card above the composer takes the quick start's place. */}
+                {/* The quick start stays hidden while the What's new card shows. */}
+                {state.loaded && models.length && !whatsNew ? (
+                  <ul className="flex flex-col items-start gap-2 px-3 pb-2" aria-label={t('panel.starters')}>
+                    {starters.map(s => (
+                      <li key={s.key} className="max-w-full">
+                        <button
+                          type="button"
+                          title={s.title}
+                          disabled={!model}
+                          className="max-w-full truncate rounded-full border border-nb-border/60 bg-nb-bg px-4 py-2 text-[15px] text-nb-fg shadow-sm transition-colors hover:bg-nb-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-nb-accent disabled:opacity-40"
+                          onClick={s.run}>
+                          {s.label}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            )}
+            <TeachVideo
+              file={teachFile}
+              model={teachModel}
+              transcribe={teachTranscribe}
+              onClose={() => setTeachFile(null)}
+            />
+            <HistoryDrawer
+              open={historyOpen}
+              onOpenChange={setHistoryOpen}
+              items={state.history}
+              currentId={state.conversationId}
+              onQuery={queryHistory}
+              onOpen={id => {
+                setHistoryOpen(false);
+                if (!client) return;
+                // A conversation with tabs in this session is shown in its own tab, not copied here (the worker sets that
+                // tab's panel back to it); any other is only shown in this panel until the user takes it up.
+                const tabs = state.history.find(item => item.id === id)?.tabs ?? [];
+                if (tabs.length && !tabs.includes(client.tabId)) showTab(tabs[0]);
+                client.send({ type: 'open', conversationId: id, tabId: client.tabId });
+              }}
+              onRename={(id, title) => client?.send({ type: 'rename', conversationId: id, title })}
+              agentTabsOnEnd={settings.agentTabsOnEnd}
+              onExport={id => client?.send({ type: 'export', conversationId: id })}
+              onDelete={(id, closeAgentTabs, remember) => {
+                if (remember)
+                  void settingsStorage.set(s => ({ ...s, agentTabsOnEnd: closeAgentTabs ? 'close' : 'keep' }));
+                client?.send({ type: 'delete', conversationId: id, closeAgentTabs });
+              }}
+            />
+            <div role="status" aria-live="polite" className="sr-only">
+              {t(`status.${state.status}`)}
+            </div>
+            <Cards
+              prompts={state.prompts}
+              answer={(promptId, answer) => client?.send({ type: 'answer', promptId, answer })}
+            />
+            <RunBar
+              status={state.status}
+              onContinue={() =>
+                state.conversationId && startRun({ type: 'continue', conversationId: state.conversationId })
+              }
+              onResume={() =>
+                state.conversationId && startRun({ type: 'resume', conversationId: state.conversationId })
+              }
+            />
+            <QueueList
+              items={state.queue}
+              onEdit={item => {
+                if (!state.conversationId) return;
+                client?.send({ type: 'unqueue', conversationId: state.conversationId, id: item.id });
+                setDraft(item.text);
+              }}
+              onDelete={item =>
+                state.conversationId &&
+                client?.send({ type: 'unqueue', conversationId: state.conversationId, id: item.id })
+              }
+            />
+            <TabBar
+              tabs={
+                state.conversationId ? state.tabs : pendingTabs.map(p => ({ ...p, url: '', origin: 'user' as const }))
+              }
+              onUnshare={tabId => {
+                if (state.conversationId)
+                  client?.send({ type: 'unshare-tab', conversationId: state.conversationId, tabId });
+                else setPendingTabs(tabs => tabs.filter(p => p.tabId !== tabId));
+              }}
+            />
+            <Composer
+              active={active}
+              mode={mode}
+              model={model}
+              models={models}
+              noModel={providersRead && !models.length}
+              history={history}
+              notice={
+                <>
+                  {/* The What's new card comes first; the notices below still show under it. The store-rating card is not shown:
+                Bash AI is the company's own tool, not in a store. */}
+                  {whatsNew ? <WhatsNewCard release={whatsNew} /> : null}
+                  {attachError ? (
+                    <p className="text-xs text-amber-700 dark:text-amber-300" role="alert">
+                      {attachError}
+                    </p>
+                  ) : autoNotice ? (
+                    <AutoNotice onDone={() => setAutoNotice(false)} />
+                  ) : providersRead && !models.length ? (
+                    <NoticeCard
+                      title={t('composer.needModelTitle')}
+                      action={{
+                        label: t('composer.setUpModel'),
+                        // Signs in to Command Center from here; when that fails, Settings shows the reason and the button.
+                        run: () =>
+                          void signInToCommandCenter().catch(
+                            () => void chrome.tabs.create({ url: chrome.runtime.getURL('/options.html#providers') }),
+                          ),
+                      }}>
+                      {t('composer.needModel')}
+                    </NoticeCard>
+                  ) : held ? (
+                    <p className="text-xs text-amber-700 dark:text-amber-300">
+                      {t('composer.cardWarning')}{' '}
+                      <button
+                        type="button"
+                        className="underline"
+                        onClick={() => {
+                          const text = held;
+                          setHeld(null);
+                          if (client && text)
+                            startRun({
+                              type: 'send',
+                              tabId: client.tabId,
+                              conversationId: state.conversationId,
+                              text,
+                              attachments: [],
+                              context: [],
+                              mode,
+                              model,
+                              reasoning,
+                            });
+                        }}>
+                        {t('composer.sendAnyway')}
+                      </button>
+                    </p>
+                  ) : state.error ? (
+                    <p className="text-xs text-red-700 dark:text-red-300">
+                      {state.error in en ? t(state.error as MessageKey) : state.error}
+                    </p>
+                  ) : null}
+                </>
+              }
+              draft={draft}
+              onDraftUsed={() => setDraft('')}
+              onSend={sendMessage}
+              shortcuts={shortcuts}
+              onLaunch={onLaunch}
+              files={files}
+              quotes={quotes}
+              onRemoveQuote={index => setQuotes(current => current.filter((_, i) => i !== index))}
+              transcribe={transcribe}
+              onOpenSettings={section =>
+                void chrome.tabs.create({ url: chrome.runtime.getURL(`/options.html#${section}`) })
+              }
+              onAttach={list => void attach(list)}
+              onScreenshot={() =>
+                client?.send({ type: 'screenshot-tab', tabId: client.tabId, conversationId: state.conversationId })
+              }
+              onTeachVideo={teachModel ? setTeachFile : undefined}
+              onRemoveFile={id => {
+                setFiles(current => current.filter(f => f.ref.id !== id));
+                setAttachError(null);
+              }}
+              sharedTabs={[client?.tabId ?? -1, ...state.tabs.map(x => x.tabId), ...pendingTabs.map(p => p.tabId)]}
+              onShareTab={tab => {
+                if (state.conversationId)
+                  client?.send({ type: 'share-tab', conversationId: state.conversationId, tabId: tab.tabId });
+                else setPendingTabs(tabs => [...tabs, tab]);
+              }}
+              onStop={() =>
+                state.conversationId && client?.send({ type: 'stop', conversationId: state.conversationId })
+              }
+              onMode={changeMode}
+              reasoning={reasoning}
+              onModel={next => choose({ model: next, reasoning })}
+              onReasoning={next => model && choose({ model, reasoning: next })}
+            />
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

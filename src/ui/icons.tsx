@@ -272,3 +272,41 @@ export function Logo({ height = 28, className = '' }: { height?: number; classNa
     </span>
   );
 }
+
+/** The chat (the side views' first button). */
+export const ChatIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 5h16v11H8l-4 4V5Z" />
+  </Svg>
+);
+
+/** My tasks: checks beside lines. */
+export const TasksIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="m4 7 2 2 3-3M4 15l2 2 3-3M12 8h8M12 16h8" />
+  </Svg>
+);
+
+/** ClickUp lists: stacked rows. */
+export const ListsIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="4" y="4" width="16" height="5" rx="1.5" />
+    <rect x="4" y="11" width="16" height="5" rx="1.5" />
+    <path d="M4 20h10" />
+  </Svg>
+);
+
+/** Quality Checks: a shield with a check. */
+export const ShieldIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M12 3 5 6v6c0 4 3 7.5 7 9 4-1.5 7-5 7-9V6l-7-3Z" />
+    <path d="m9 12 2 2 4-4" />
+  </Svg>
+);
+
+/** Churn risk: a line going down. */
+export const TrendDownIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M3 7l6 6 4-4 8 8M21 11v6h-6" />
+  </Svg>
+);

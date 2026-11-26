@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CHANGE_THRESHOLD,
+  fitBudget,
   MAX_SAMPLES,
   MAX_STILLS,
   MAX_TEACH_SECONDS,
@@ -92,5 +93,17 @@ describe('teach from a video: the narration', () => {
     const speech = new Float32Array(16_000);
     speech[3200] = 0.3;
     expect(isSilent(speech)).toBe(false);
+  });
+});
+
+describe('the stills fit one request', () => {
+  it('thins them evenly until they weigh at most the budget, keeping the first and the last', () => {
+    const stills = Array.from({ length: 40 }, (_, i) => ({ atSec: i, jpeg: new Uint8Array(250_000) }));
+    const kept = fitBudget(stills, 5_500_000);
+    expect(kept.reduce((n, s) => n + s.jpeg.length, 0)).toBeLessThanOrEqual(5_500_000);
+    expect(kept[0].atSec).toBe(0);
+    expect(kept.at(-1)?.atSec).toBe(39);
+    const light = stills.slice(0, 10);
+    expect(fitBudget(light, 5_500_000)).toHaveLength(10);
   });
 });

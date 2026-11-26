@@ -738,3 +738,83 @@ export async function setViewAs(member: ViewAs | null): Promise<CommandCenterCon
   }
   return saved;
 }
+
+/* Bash AI's side views (Command Center's /api/ai-browser/panel): tasks, ClickUp lists, Quality Checks, churn risk. */
+
+export type PanelView = 'tasks' | 'lists' | 'quality' | 'churn';
+
+export interface PanelTask {
+  id: string;
+  title: string;
+  status: string;
+  due: string | null;
+  overdue: boolean;
+  priority: string | null;
+  list: string | null;
+  client: string | null;
+  url: string | null;
+}
+
+export interface PanelListLink {
+  id: string;
+  name: string;
+  kind: 'list' | 'space' | 'folder';
+  url: string;
+  note?: string;
+  folder?: string | null;
+}
+
+export interface PanelData {
+  tasks: { tasks: PanelTask[]; source: 'clickup' | 'mirror' };
+  lists: { yours: PanelListLink[]; spaces: Array<{ id: string; name: string; url: string; lists: PanelListLink[] }> };
+  quality: {
+    mode: 'off' | 'test' | 'live';
+    summary: { urgentClients: number; openClients: number; openProblems: number; clearClients: number };
+    clients: Array<{
+      id: string;
+      name: string;
+      stage: string;
+      summary: string;
+      open: number;
+      clear: boolean;
+      url: string;
+    }>;
+    url: string;
+  };
+  churn: {
+    counts: { risk: number; watch: number; ok: number; unchecked: number };
+    clients: Array<{
+      id: string;
+      name: string;
+      level: 'risk' | 'watch' | 'ok' | null;
+      verdict: string | null;
+      csm: string | null;
+      url: string;
+    }>;
+    url: string;
+  };
+}
+
+async function panelGet<T>(query: string): Promise<T> {
+  const connection = await freshConnection();
+  const response = await withCommandCenterToken(token =>
+    ccFetch(`${connection.url}/api/ai-browser/panel${query}`, { headers: { Authorization: `Bearer ${token}` } }),
+  );
+  if (!response.ok) throw new CommandCenterError(await oauthError(response), response.status);
+  return ((await response.json()) as { data: T }).data;
+}
+
+/** The side views this person's role opens. A Command Center without them (older) gives none. */
+export async function readPanelViews(): Promise<PanelView[]> {
+  try {
+    return (await panelGet<{ views: PanelView[] }>('')).views;
+  } catch (error) {
+    if (error instanceof CommandCenterError && error.status === 404) return [];
+    throw error;
+  }
+}
+
+/** One side view's rows, as Command Center has them now. */
+export function readPanel<V extends PanelView>(view: V): Promise<PanelData[V]> {
+  return panelGet<PanelData[V]>(`?view=${view}`);
+}

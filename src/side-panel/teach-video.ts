@@ -14,7 +14,12 @@ export const CHANGE_THRESHOLD = 0.04;
 /** A WAV piece's limit: Command Center takes 9.5 MB a request. */
 export const MAX_CHUNK_BYTES = 8 * 1024 * 1024;
 /** A still's widest side. */
-export const STILL_WIDTH = 1280;
+export const STILL_WIDTH = 1024;
+/**
+ * The most the stills may weigh together. They travel as base64 (a third larger) in one request, and Command Center
+ * refuses a request over 9.5 MB before it logs anything: 40 stills of a screen at 1,280 px went past that (Nov 26).
+ */
+export const STILLS_BUDGET_BYTES = 5_500_000;
 /** The size of the small grey copy frames are compared on. */
 const SIGNATURE_W = 48;
 const SIGNATURE_H = 27;
@@ -182,12 +187,21 @@ export async function readStills(
     if (!last || frameDifference(last, grey) > CHANGE_THRESHOLD) {
       last = grey;
       bigCtx.drawImage(video, 0, 0, width, height);
-      const blob = await new Promise<Blob | null>(resolve => big.toBlob(resolve, 'image/jpeg', 0.8));
+      const blob = await new Promise<Blob | null>(resolve => big.toBlob(resolve, 'image/jpeg', 0.7));
       if (blob) stills.push({ atSec, jpeg: new Uint8Array(await blob.arrayBuffer()) });
     }
     onProgress((i + 1) / times.length, stills.length);
   }
-  return spreadEvenly(stills, MAX_STILLS);
+  return fitBudget(spreadEvenly(stills, MAX_STILLS));
+}
+
+/** Thins the stills evenly (first and last kept) until together they weigh at most `maxBytes`. */
+export function fitBudget<T extends { jpeg: Uint8Array }>(stills: T[], maxBytes = STILLS_BUDGET_BYTES): T[] {
+  const weight = (list: T[]) => list.reduce((sum, s) => sum + s.jpeg.length, 0);
+  let kept = stills;
+  while (kept.length > 2 && weight(kept) > maxBytes)
+    kept = spreadEvenly(kept, Math.max(2, Math.floor(kept.length * 0.8)));
+  return kept;
 }
 
 /** The narration as WAV pieces, or [] when the video has no sound track or only silence. */
