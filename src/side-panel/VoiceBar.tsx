@@ -77,6 +77,20 @@ export function voiceTools(connection: Pick<CommandCenterConnection, 'tools'>): 
   return tools;
 }
 
+/** The voice the agent prefers: Grok, then OpenAI (Aaron 2026-11-25: "default to Grok, and fallback will be OpenAI"). */
+const PREFERENCE: VoiceProvider[] = ['grok', 'openai'];
+
+/** The voices to offer, Grok first. */
+export function orderedAgents<T extends { provider: VoiceProvider }>(agents: T[]): T[] {
+  return [...agents].sort((a, b) => PREFERENCE.indexOf(a.provider) - PREFERENCE.indexOf(b.provider));
+}
+
+/** The voices to try for a call: the chosen one first, then the others in order of preference. */
+export function voiceOrder(available: VoiceProvider[], chosen: VoiceProvider): VoiceProvider[] {
+  const rest = PREFERENCE.filter(p => p !== chosen && available.includes(p));
+  return available.includes(chosen) ? [chosen, ...rest] : rest;
+}
+
 const STATE_KEYS: Record<VoiceState, MessageKey> = {
   connecting: 'voice.connecting',
   listening: 'voice.listening',
@@ -102,8 +116,11 @@ export function VoiceBar({
   stopTask: () => void;
   onClose: () => void;
 }) {
-  const agents = connection.extras?.voice.agents ?? [];
-  const [provider, setProvider] = useState<VoiceProvider>(agents[0]?.provider ?? 'openai');
+  const agents = orderedAgents(connection.extras?.voice.agents ?? []);
+  // Grok by default; OpenAI when Grok is not offered, and as the fallback when Grok cannot start a call.
+  const [provider, setProvider] = useState<VoiceProvider>(agents[0]?.provider ?? 'grok');
+  /** A plain note, not an error: the call moved to the fallback voice. */
+  const [notice, setNotice] = useState<string | null>(null);
   const [state, setState] = useState<VoiceState | null>(null);
   // Minimized: only the wave, with Expand and End. Remembered in this browser.
   const [minimized, setMinimizedState] = useState(() => {
@@ -152,29 +169,58 @@ export function VoiceBar({
     return `error: ${name} is not a tool.`;
   };
 
+  /**
+   * Starts a call with one voice: a connection that opens but never starts a session is tried again with a new
+   * secret, three times at most. Resolves with the microphone's error, if any; throws when the voice cannot start.
+   */
+  const connectWith = async (voiceProvider: VoiceProvider) => {
+    for (let attempt = 1; ; attempt++) {
+      const grant = await requestVoiceSession(voiceProvider);
+      const voice = new VoiceAgent(grant, {
+        instructions: voiceInstructions(connection),
+        tools: voiceTools(connection),
+        runTool,
+        onState: setState,
+        onLine: line => setLines(current => [...current.slice(-5), line]),
+        onError: message => setError(message),
+      });
+      agent.current = voice;
+      try {
+        return await voice.start();
+      } catch (e) {
+        voice.stop();
+        if (!(e instanceof NoSessionError) || attempt >= 3) throw e;
+      }
+    }
+  };
+
+  const nameOf = (p: VoiceProvider) => agents.find(a => a.provider === p)?.label ?? p;
+
   const start = async () => {
     setError(null);
+    setNotice(null);
     setLines([]);
     setState('connecting');
     try {
       let micError: Awaited<ReturnType<VoiceAgent['start']>> = null;
-      // A connection that opens but never starts a session is tried again with a new secret, three times at most.
-      for (let attempt = 1; ; attempt++) {
-        const grant = await requestVoiceSession(provider);
-        const voice = new VoiceAgent(grant, {
-          instructions: voiceInstructions(connection),
-          tools: voiceTools(connection),
-          runTool,
-          onState: setState,
-          onLine: line => setLines(current => [...current.slice(-5), line]),
-          onError: message => setError(message),
-        });
-        agent.current = voice;
+      // The chosen voice first (Grok unless the person picked another), then the fallback. The microphone's own
+      // problems are not the voice's, so they never move the call to the other one.
+      const order = voiceOrder(
+        agents.map(a => a.provider),
+        provider,
+      );
+      for (const [i, voiceProvider] of order.entries()) {
         try {
-          micError = await voice.start();
+          micError = await connectWith(voiceProvider);
+          if (i > 0) {
+            setProvider(voiceProvider);
+            setNotice(t('voice.fallback', { from: nameOf(order[0]), to: nameOf(voiceProvider) }));
+          }
           break;
         } catch (e) {
-          if (!(e instanceof NoSessionError) || attempt >= 3) throw e;
+          if (i === order.length - 1) throw e;
+          console.warn(`[voice] ${voiceProvider} could not start; trying ${order[i + 1]}`, e);
+          setState('connecting');
         }
       }
       if (micError === 'not-allowed') {
@@ -338,6 +384,7 @@ export function VoiceBar({
       ) : !live ? (
         <p className="relative text-center text-xs text-nb-muted">{t('voice.hint')}</p>
       ) : null}
+      {notice && !error ? <p className="relative text-xs text-nb-muted">{notice}</p> : null}
       {error ? (
         <p role="alert" className="relative text-xs text-red-700 dark:text-red-300">
           {error}

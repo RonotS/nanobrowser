@@ -123,3 +123,20 @@ describe('one reply at a time', () => {
     expect(gate.ended()).toBe(true);
   });
 });
+
+describe('which voice', () => {
+  it('offers Grok first, and tries the chosen voice first with the other as the fallback', async () => {
+    const { orderedAgents, voiceOrder } = await import('../VoiceBar');
+    const agents = [
+      { provider: 'openai' as const, name: 'gpt-realtime-2.1' },
+      { provider: 'grok' as const, name: 'grok-voice-latest' },
+    ];
+    expect(orderedAgents(agents).map(a => a.provider)).toEqual(['grok', 'openai']);
+    expect(voiceOrder(['openai', 'grok'], 'grok')).toEqual(['grok', 'openai']);
+    // Picking OpenAI by hand still has Grok to fall back to.
+    expect(voiceOrder(['openai', 'grok'], 'openai')).toEqual(['openai', 'grok']);
+    // Only the voices Command Center offers.
+    expect(voiceOrder(['openai'], 'grok')).toEqual(['openai']);
+    expect(voiceOrder(['grok'], 'grok')).toEqual(['grok']);
+  });
+});
