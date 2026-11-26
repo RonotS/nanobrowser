@@ -590,9 +590,8 @@ export function App() {
           saveHistory={!temporary}
         />
       ) : null}
-      {/* The side views' strip on the left; the chat keeps its place (and its state) while another view shows. */}
+      {/* The side views' strip on the right; the chat keeps its place (and its state) while another view shows. */}
       <div className="flex min-h-0 flex-1">
-        {railViews.length ? <PanelRail views={railViews} current={view} onPick={setView} /> : null}
         <div className="flex min-w-0 flex-1 flex-col">
           {view !== 'chat' ? <SideView key={`${view}:${railKey}`} view={view} onAsk={askFromSide} /> : null}
           <div className={view === 'chat' ? 'contents' : 'hidden'}>
@@ -843,6 +842,7 @@ export function App() {
             />
           </div>
         </div>
+        {railViews.length ? <PanelRail views={railViews} current={view} onPick={setView} /> : null}
       </div>
     </div>
   );

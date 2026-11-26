@@ -1,5 +1,6 @@
-// The strip down the left of the panel: Chat, and the side views Command Center opens to this person's role
-// (Aaron 2026-11-26: "a tab … on the left side … some sort of switcher"). Each is an icon with its name as a tooltip.
+// The strip down the right of the panel: Chat, and the side views Command Center opens to this person's role
+// (Aaron 2026-11-26: "some sort of switcher", then "not on the left but on the right of the Bash AI panel").
+// Each is an icon with its name as a tooltip.
 import type { ReactNode } from 'react';
 import type { PanelView } from '@src/store/command-center';
 import { t } from '@src/ui/i18n';
@@ -28,7 +29,7 @@ export function PanelRail({
   return (
     <nav
       aria-label={t('rail.label')}
-      className="flex w-10 shrink-0 flex-col items-center gap-1 border-r border-nb-border/60 py-2">
+      className="flex w-10 shrink-0 flex-col items-center gap-1 border-l border-nb-border/60 py-2">
       {(['chat', ...views] as RailView[]).map(view => {
         const label = t(`rail.${view}` as MessageKey);
         const on = view === current;
