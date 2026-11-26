@@ -43,6 +43,8 @@ export interface Settings {
    * person is on another tab (Bash AI: on by default; Aaron kept asking the voice agent to show the page).
    */
   followAgent: boolean;
+  /** A pointer labelled "Bash AI" on the page, gliding to each click, hover and scroll the agent makes. */
+  agentCursor: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -64,6 +66,7 @@ export const DEFAULT_SETTINGS: Settings = {
   analyticsStats: true,
   pageBorder: true,
   followAgent: true,
+  agentCursor: true,
 };
 
 /** Stored settings over the defaults, so a field added later has its default. */

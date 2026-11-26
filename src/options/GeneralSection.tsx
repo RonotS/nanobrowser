@@ -149,6 +149,13 @@ export function GeneralSection() {
             onChange={on => void settingsStorage.set(s => ({ ...s, followAgent: on }))}
           />
         </SettingsRow>
+        <SettingsRow label={t('general.agentCursor')} description={t('general.agentCursorHint')}>
+          <Switch
+            aria-label={t('general.agentCursor')}
+            checked={settings.agentCursor !== false}
+            onChange={on => void settingsStorage.set(s => ({ ...s, agentCursor: on }))}
+          />
+        </SettingsRow>
         <SettingsRow label={t('general.pageBorder')} description={t('general.pageBorderHint')}>
           <Switch
             aria-label={t('general.pageBorder')}

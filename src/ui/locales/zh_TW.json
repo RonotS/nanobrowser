@@ -558,6 +558,8 @@
   "voice.muted": "已靜音",
   "general.followAgent": "顯示 Bash AI 的操作",
   "general.followAgentHint": "Bash AI 開啟或切換到的分頁會顯示在最前面，即使你正在看其他分頁。",
+  "general.agentCursor": "顯示 Bash AI 的游標",
+  "general.agentCursorHint": "標有 Bash AI 的指標會移到每次點擊、懸停和捲動的位置，方便你看清它在做什麼。",
   "rail.label": "檢視",
   "rail.chat": "聊天",
   "rail.tasks": "我的任務",

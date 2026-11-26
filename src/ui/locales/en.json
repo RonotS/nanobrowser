@@ -558,6 +558,8 @@
   "voice.muted": "Muted",
   "general.followAgent": "Show what Bash AI is doing",
   "general.followAgentHint": "A tab Bash AI opens or switches to comes to the front, even when you are on another tab.",
+  "general.agentCursor": "Show Bash AI's cursor",
+  "general.agentCursorHint": "A pointer marked Bash AI moves to each click, hover and scroll, so you can follow what it does.",
   "rail.label": "Views",
   "rail.chat": "Chat",
   "rail.tasks": "My tasks",

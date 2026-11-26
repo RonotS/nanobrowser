@@ -69,7 +69,8 @@ import type { AttachmentRef, PanelCommand, PanelEventBody } from '@src/ui/protoc
 import { createAgentSession, layerPort } from './agent-session';
 import { TabScope } from './bindings';
 import { PageBorder, injectBorder, listenForBorder } from './border';
-import { addPromptRoute, controllerReady } from './layer';
+import { PageCursor, injectCursor, listenForCursor } from './cursor';
+import { addPromptRoute, controllerReady, watchPointer } from './layer';
 import { Permissions } from './permissions';
 import { PromptBroker } from './prompt-broker';
 import { notifyFinished, notifyNeeds } from './notify';
@@ -118,6 +119,7 @@ export class RunManager {
   readonly scope: TabScope;
   /** The glow on the pages a working run acts on. */
   readonly border: PageBorder;
+  readonly cursor: PageCursor;
   /** Messages typed while the agent works: one queue per conversation, in the worker. */
   #queues = new Map<string, QueuedMessage[]>();
   /** The open panels, for what goes to one tab's panel only (a selection). */
@@ -146,6 +148,17 @@ export class RunManager {
     // A worker that stopped during a run leaves its pages with a border, and the extension id they check is still
     // there: no run works at worker start, so every scoped tab loses it.
     void this.border.start().catch(() => undefined);
+    this.cursor = new PageCursor({
+      conversationOf: tabId => this.scope.conversationOf(tabId),
+      tabsOf: conversationId => this.scope.tabsOf(conversationId),
+      scopedTabs: () => this.scope.scopedTabs(),
+      enabled: async () => ((await settingsStorage.get()) ?? DEFAULT_SETTINGS).agentCursor !== false,
+      inject: injectCursor,
+    });
+    listenForCursor(this.cursor);
+    // The layer's mouse input reaches the page after the cursor got there (./cursor, watchPointerInput).
+    watchPointer((tabId, input) => this.cursor.input(tabId, input));
+    void this.cursor.start().catch(() => undefined);
     this.broker = new PromptBroker({
       emit: (conversationId, body) => this.emit(conversationId, body),
       waiting: (conversationId, open) => void this.#waiting(conversationId, open.length > 0),
@@ -172,6 +185,7 @@ export class RunManager {
   /** The scope changed: the panels get the new list, and a session in a run gains or loses the tab. */
   async #scopeChanged(conversationId: string, added: number[], removed: number[]): Promise<void> {
     void this.border.tabsChanged(added, removed).catch(() => undefined);
+    void this.cursor.tabsChanged(removed).catch(() => undefined);
     const session = this.#sessions.get(conversationId);
     if (session) {
       for (const tabId of added) if (!session.hasTab(tabId)) await session.share(tabId).catch(() => undefined);
@@ -1535,6 +1549,7 @@ export class RunManager {
     this.emit(record.conversationId, { type: 'run_status', status, reason, startedAt: record.startedAt });
     await this.scope.status(record.conversationId, status, conversation?.title ?? '');
     void this.border.status(record.conversationId, status).catch(() => undefined);
+    void this.cursor.status(record.conversationId, status).catch(() => undefined);
   }
 
   /** Continue and Resume: a new run on the same context, opened by a note. */
@@ -1597,7 +1612,7 @@ export class RunManager {
         record.tabs = session.tabIds();
         const commandCenter = await this.#commandCenterSetup();
         const tools = toolsForRun({ vision: model.profile.vision, agentTools: commandCenter.agentTools });
-        const port = layerPort(session, this.border);
+        const port = layerPort(session, this.border, this.cursor);
         const loop = new AgentLoop({
           conversationId,
           runId,

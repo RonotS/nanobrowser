@@ -1,15 +1,10 @@
 // The browser control layer in the worker: one controller for the product's agent sessions and the developer's test
 // panel. A prompt from the layer goes to whoever holds its tab: the conversation that owns the tab (the PromptBroker),
-// or else the test panel.
-import { createChromeController } from '@src/browser-control';
-import type {
-  AskAnswer,
-  AskRequest,
-  ConfirmAnswer,
-  ConfirmRequest,
-  Controller,
-  UserPrompt,
-} from '@src/browser-control';
+// or else the test panel. The mouse input it sends is shown to Bash AI's cursor first (./cursor, watchPointerInput).
+import { Controller, chromeAttacher, chromeEpochStore, chromeTabHost } from '@src/browser-control';
+import type { AskAnswer, AskRequest, ConfirmAnswer, ConfirmRequest, UserPrompt } from '@src/browser-control';
+import { watchPointerInput } from './cursor';
+import type { MouseInput } from './cursor';
 
 /** A handler for the prompts of tabs a product session holds. */
 export interface PromptRoute {
@@ -45,7 +40,20 @@ const routedPrompt: UserPrompt = {
   ask: (request: AskRequest, signal: AbortSignal): Promise<AskAnswer> => pick(request.tabId).ask(request, signal),
 };
 
-export const controllerReady: Promise<Controller> = createChromeController({ prompt: routedPrompt }).then(c => {
+let pointerWatcher: ((tabId: number, input: MouseInput) => Promise<void> | void) | null = null;
+
+/** Who sees the layer's mouse input before it is sent: the RunManager's cursor. */
+export function watchPointer(watcher: typeof pointerWatcher): void {
+  pointerWatcher = watcher;
+}
+
+/** The controller wired to Chrome, as createChromeController makes it, with the attacher watched for the cursor. */
+export const controllerReady: Promise<Controller> = Controller.create({
+  attacher: watchPointerInput(chromeAttacher, (tabId, input) => pointerWatcher?.(tabId, input)),
+  tabs: chromeTabHost,
+  epochStore: chromeEpochStore,
+  prompt: routedPrompt,
+}).then(c => {
   console.info('[layer] controller ready, epoch', c.epoch.prefix, c.epoch.persisted ? '' : '(not persisted)');
   return c;
 });

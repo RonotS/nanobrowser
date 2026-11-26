@@ -4,6 +4,7 @@
 import type { Controller, Session, SessionConfig, TabsData } from '@src/browser-control';
 import type { LayerPort } from '@src/agent/ports';
 import type { PageBorder } from './border';
+import type { PageCursor } from './cursor';
 
 /** The extension's labels, defused wherever page text holds them. */
 export const AGENT_LABELS = ['[Nanobrowser note', 'browser-state', 'agent-notes', 'custom-instructions'];
@@ -39,15 +40,23 @@ function dialogOpen(session: Session, tabId: number): boolean {
   return session.hasTab(tabId) && session.controller.tabState(tabId).pending.some(m => m.kind === 'dialog');
 }
 
-/** The loop's view of a session (src/agent/ports.ts). A screenshot fades the page border out first. */
-export function layerPort(session: Session, border?: Pick<PageBorder, 'around'>): LayerPort {
+/**
+ * The loop's view of a session (src/agent/ports.ts). A screenshot fades the page border out first, and hides Bash AI's
+ * cursor, so the model sees the page as it is.
+ */
+export function layerPort(
+  session: Session,
+  border?: Pick<PageBorder, 'around'>,
+  cursor?: Pick<PageCursor, 'around'>,
+): LayerPort {
   return {
     call: (tool, args, signal) => {
       const run = () => session.call(tool, args, { signal });
-      if (tool !== 'screenshot' || !border) return run();
+      if (tool !== 'screenshot' || (!border && !cursor)) return run();
       const tabId = screenshotTab(session, args);
       if (tabId === null || dialogOpen(session, tabId)) return run();
-      return border.around(tabId, run);
+      const bare = cursor ? () => cursor.around(tabId, run) : run;
+      return border ? border.around(tabId, bare) : bare();
     },
     async tabs() {
       const result = await session.call('tabs', { action: 'list' });

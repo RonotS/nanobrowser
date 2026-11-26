@@ -558,6 +558,8 @@
   "voice.muted": "已静音",
   "general.followAgent": "显示 Bash AI 的操作",
   "general.followAgentHint": "Bash AI 打开或切换到的标签页会显示在最前面，即使你正在看其他标签页。",
+  "general.agentCursor": "显示 Bash AI 的光标",
+  "general.agentCursorHint": "标有 Bash AI 的指针会移到每次点击、悬停和滚动的位置，方便你看清它在做什么。",
   "rail.label": "视图",
   "rail.chat": "聊天",
   "rail.tasks": "我的任务",
