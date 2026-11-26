@@ -118,12 +118,46 @@ export function eventKind(type: string): string {
       return 'tool';
     case 'session.created':
       return 'session';
+    case 'response.created':
+      return 'started';
     case 'response.done':
       return 'done';
     case 'error':
       return 'error';
     default:
       return 'other';
+  }
+}
+
+/**
+ * One reply at a time. Both providers refuse a new `response.create` while a reply is being made ("Conversation
+ * already has an active response in progress"), so a reply asked for meanwhile waits and goes out once the current one
+ * is done. `ask` returns whether to send it now.
+ */
+export class ReplyGate {
+  #replying = false;
+  #waiting = false;
+
+  /** A reply is wanted: true to send `response.create` now, false when it has to wait. */
+  ask(): boolean {
+    if (this.#replying) {
+      this.#waiting = true;
+      return false;
+    }
+    this.#waiting = false;
+    this.#replying = true;
+    return true;
+  }
+
+  /** The provider started a reply (`response.created`), ours or its own after the person spoke. */
+  started(): void {
+    this.#replying = true;
+  }
+
+  /** The reply ended (`response.done`), or a request was refused: true when a waiting reply should be asked for now. */
+  ended(): boolean {
+    this.#replying = false;
+    return this.#waiting;
   }
 }
 
@@ -136,6 +170,7 @@ export class VoiceAgent {
   #sessionStarted: (() => void) | null = null;
   /** Tool calls of the reply being made: answered together when the reply is done, then one new reply is asked for. */
   #calls: Array<Promise<{ call_id: string; output: string }>> = [];
+  #replies = new ReplyGate();
 
   constructor(
     readonly grant: VoiceGrant,
@@ -193,7 +228,12 @@ export class VoiceAgent {
       type: 'conversation.item.create',
       item: { type: 'message', role: 'user', content: [{ type: 'input_text', text }] },
     });
-    this.#send({ type: 'response.create' });
+    this.#askForReply();
+  }
+
+  /** Asks for a reply now, or as soon as the one being made is done. */
+  #askForReply(): void {
+    if (this.#replies.ask()) this.#send({ type: 'response.create' });
   }
 
   stop(): void {
@@ -235,6 +275,9 @@ export class VoiceAgent {
       case 'session':
         this.#sessionStarted?.();
         return;
+      case 'started':
+        this.#replies.started();
+        return;
       case 'tool': {
         if (!event.call_id || !event.name) return;
         let args: Record<string, unknown> = {};
@@ -254,16 +297,22 @@ export class VoiceAgent {
         return;
       }
       case 'done': {
+        const waiting = this.#replies.ended();
         // Every answer goes back before one new reply is asked for, as both providers document.
-        if (!this.#calls.length) return;
-        const answers = await Promise.all(this.#calls.splice(0));
-        for (const answer of answers) {
-          this.#send({ type: 'conversation.item.create', item: { type: 'function_call_output', ...answer } });
+        if (this.#calls.length) {
+          const answers = await Promise.all(this.#calls.splice(0));
+          for (const answer of answers) {
+            this.#send({ type: 'conversation.item.create', item: { type: 'function_call_output', ...answer } });
+          }
+          this.#askForReply();
+        } else if (waiting) {
+          this.#askForReply();
         }
-        this.#send({ type: 'response.create' });
         return;
       }
       case 'error':
+        // A refused request makes no reply, so the next one is not held back waiting for it.
+        if (this.#replies.ended()) this.#askForReply();
         this.options.onError(event.error?.message ?? 'The voice service reported an error.');
         return;
       default:

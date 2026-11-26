@@ -103,3 +103,23 @@ describe('the header', () => {
     ]);
   });
 });
+
+describe('one reply at a time', () => {
+  it('holds a reply asked for while one is being made, and sends it when that one is done', async () => {
+    const { ReplyGate } = await import('../voice-agent');
+    const gate = new ReplyGate();
+    expect(gate.ask()).toBe(true); // nothing in progress: send now
+    expect(gate.ask()).toBe(false); // a browser task ended mid-answer: wait
+    expect(gate.ended()).toBe(true); // the answer is done: send the waiting one
+    expect(gate.ask()).toBe(true);
+    expect(gate.ended()).toBe(false);
+  });
+
+  it('waits for a reply the provider started on its own, after the person spoke', async () => {
+    const { ReplyGate } = await import('../voice-agent');
+    const gate = new ReplyGate();
+    gate.started();
+    expect(gate.ask()).toBe(false);
+    expect(gate.ended()).toBe(true);
+  });
+});

@@ -34,7 +34,7 @@ export function barHeight(i: number, n: number, amp: number, mode: WaveMode, t: 
   return Math.max(0.04, amp * (0.25 + 0.75 * bell) * motion);
 }
 
-export function Waveform({ mode, level }: { mode: WaveMode; level: () => number }) {
+export function Waveform({ mode, level, compact }: { mode: WaveMode; level: () => number; compact?: boolean }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const latest = useRef({ mode, level });
   latest.current = { mode, level };
@@ -84,5 +84,5 @@ export function Waveform({ mode, level }: { mode: WaveMode; level: () => number 
     return () => cancelAnimationFrame(frame);
   }, []);
 
-  return <canvas ref={canvas} aria-hidden className="block h-16 w-full" />;
+  return <canvas ref={canvas} aria-hidden className={`block w-full ${compact ? 'h-9' : 'h-16'}`} />;
 }

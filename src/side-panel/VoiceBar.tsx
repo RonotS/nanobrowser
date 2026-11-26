@@ -9,11 +9,13 @@ import { t } from '@src/ui/i18n';
 import type { MessageKey } from '@src/ui/i18n';
 import { NoSessionError, VoiceAgent } from './voice-agent';
 import { Waveform } from './Waveform';
+import { ChevronIcon } from '@src/ui/icons';
 import type { WaveMode } from './Waveform';
 import type { VoiceLine, VoiceProvider, VoiceState, VoiceToolDefinition } from './voice-agent';
 
 /** How much of a Command Center answer the voice model gets: it speaks a summary, not the whole table. */
 const LOOKUP_LIMIT = 12_000;
+const MINIMIZED_KEY = 'kai.voiceMinimized';
 const ENDED: ReadonlySet<RunStatus> = new Set(['done', 'failed', 'stopped', 'capped', 'interrupted']);
 
 function firstSentence(text: string): string {
@@ -103,6 +105,22 @@ export function VoiceBar({
   const agents = connection.extras?.voice.agents ?? [];
   const [provider, setProvider] = useState<VoiceProvider>(agents[0]?.provider ?? 'openai');
   const [state, setState] = useState<VoiceState | null>(null);
+  // Minimized: only the wave, with Expand and End. Remembered in this browser.
+  const [minimized, setMinimizedState] = useState(() => {
+    try {
+      return localStorage.getItem(MINIMIZED_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const setMinimized = (value: boolean) => {
+    setMinimizedState(value);
+    try {
+      localStorage.setItem(MINIMIZED_KEY, value ? '1' : '0');
+    } catch {
+      // Not remembered; the panel still minimizes.
+    }
+  };
   const [lines, setLines] = useState<VoiceLine[]>([]);
   const [error, setError] = useState<string | null>(null);
   const agent = useRef<VoiceAgent | null>(null);
@@ -205,6 +223,42 @@ export function VoiceBar({
     return state === 'speaking' ? levels.output : levels.input;
   };
   const mode: WaveMode = live && state ? state : 'idle';
+  if (minimized) {
+    return (
+      <section
+        aria-label={t('voice.title')}
+        className="relative mx-2 mb-1 mt-2 overflow-hidden rounded-xl border border-nb-sky/30 bg-gradient-to-b from-nb-surface to-nb-bg px-9 py-1 shadow-soft">
+        <span
+          aria-hidden
+          className={`absolute left-3 top-1/2 size-2 -translate-y-1/2 rounded-full ${live ? (state === 'speaking' ? 'animate-pulse bg-nb-sky' : 'bg-emerald-500') : 'bg-nb-border'}`}
+        />
+        <span className="sr-only" aria-live="polite">
+          {state ? t(STATE_KEYS[state]) : t('voice.title')}
+        </span>
+        <Waveform mode={mode} level={level} compact />
+        <div className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1">
+          {live ? (
+            <button
+              type="button"
+              aria-label={t('voice.end')}
+              title={t('voice.end')}
+              className="flex size-6 items-center justify-center rounded-full bg-red-600 text-white shadow-sm hover:bg-red-700"
+              onClick={end}>
+              <span aria-hidden className="size-2 rounded-[2px] bg-white" />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            aria-label={t('voice.expand')}
+            title={t('voice.expand')}
+            className="flex size-6 items-center justify-center rounded-full text-nb-muted hover:bg-nb-surface hover:text-nb-fg"
+            onClick={() => setMinimized(false)}>
+            <ChevronIcon size={14} className="rotate-90" />
+          </button>
+        </div>
+      </section>
+    );
+  }
   return (
     <section
       aria-label={t('voice.title')}
@@ -225,6 +279,14 @@ export function VoiceBar({
           {state ? t(STATE_KEYS[state]) : t('voice.title')}
         </span>
         <span className="flex-1" />
+        <button
+          type="button"
+          aria-label={t('voice.minimize')}
+          title={t('voice.minimize')}
+          className="flex size-6 items-center justify-center rounded-full text-nb-muted hover:bg-nb-surface hover:text-nb-fg"
+          onClick={() => setMinimized(true)}>
+          <ChevronIcon size={14} className="-rotate-90" />
+        </button>
         {!live && agents.length > 1 ? (
           <select
             aria-label={t('voice.provider')}

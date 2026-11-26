@@ -511,5 +511,7 @@
   "cc.mediaHint": "Ask Bash AI for ad creatives, mock-ups or short videos. What it makes is kept with the conversation; save it, or let Bash AI upload it into a page.",
   "cc.voice": "Voice",
   "cc.voiceHint": "Talk with Bash AI from the sound-wave button in the side panel, or dictate a message with the microphone.",
-  "cc.dictation": "Dictation"
+  "cc.dictation": "Dictation",
+  "voice.minimize": "Minimize to the wave",
+  "voice.expand": "Show the voice panel"
 }

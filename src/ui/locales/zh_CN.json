@@ -511,5 +511,7 @@
   "cc.mediaHint": "让 Bash AI 制作广告素材、样稿或短视频。生成的文件保存在对话中；可以保存下来，或让 Bash AI 上传到网页。",
   "cc.voice": "语音",
   "cc.voiceHint": "点击侧边栏中的声波按钮与 Bash AI 对话，或用麦克风口述消息。",
-  "cc.dictation": "语音输入"
+  "cc.dictation": "语音输入",
+  "voice.minimize": "最小化为声波",
+  "voice.expand": "显示语音面板"
 }
