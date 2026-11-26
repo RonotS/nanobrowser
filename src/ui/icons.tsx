@@ -287,6 +287,14 @@ export const TasksIcon = (p: IconProps) => (
   </Svg>
 );
 
+/** Meeting prep: a calendar page with a check. */
+export const CalendarIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="4" y="5" width="16" height="15" rx="2" />
+    <path d="M4 10h16M9 3v4M15 3v4m-5.5 8 2 2 3.5-3.5" />
+  </Svg>
+);
+
 /** ClickUp lists: stacked rows. */
 export const ListsIcon = (p: IconProps) => (
   <Svg {...p}>

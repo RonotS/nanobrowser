@@ -739,9 +739,32 @@ export async function setViewAs(member: ViewAs | null): Promise<CommandCenterCon
   return saved;
 }
 
-/* Bash AI's side views (Command Center's /api/ai-browser/panel): tasks, ClickUp lists, Quality Checks, churn risk. */
+/* Bash AI's side views (Command Center's /api/ai-browser/panel): tasks, meeting prep, ClickUp lists, Quality Checks,
+   churn risk. */
 
-export type PanelView = 'tasks' | 'lists' | 'quality' | 'churn';
+export type PanelView = 'tasks' | 'prep' | 'lists' | 'quality' | 'churn';
+
+/** One client call in Meeting prep, with the client's brief (Command Center's PanelPrepCall). */
+export interface PanelPrepCall {
+  key: string;
+  clientId: string;
+  clientName: string;
+  at: string;
+  endAt: string;
+  day: 'today' | 'tomorrow';
+  inProgress: boolean;
+  kind: string;
+  title: string;
+  meetLink: string | null;
+  headline: string | null;
+  talkingPoints: string[];
+  /** The whole brief as markdown; null when the client has no notebook yet. */
+  brief: string | null;
+  builtAt: string | null;
+  stale: boolean;
+  clientUrl: string;
+  recordingUrl: string | null;
+}
 
 export interface PanelTask {
   id: string;
@@ -766,6 +789,8 @@ export interface PanelListLink {
 
 export interface PanelData {
   tasks: { tasks: PanelTask[]; source: 'clickup' | 'mirror' };
+  /** `connected`: whether the person has a Google Calendar connected to Command Center. */
+  prep: { connected: boolean; calls: PanelPrepCall[] };
   lists: { yours: PanelListLink[]; spaces: Array<{ id: string; name: string; url: string; lists: PanelListLink[] }> };
   quality: {
     mode: 'off' | 'test' | 'live';
@@ -817,4 +842,18 @@ export async function readPanelViews(): Promise<PanelView[]> {
 /** One side view's rows, as Command Center has them now. */
 export function readPanel<V extends PanelView>(view: V): Promise<PanelData[V]> {
   return panelGet<PanelData[V]>(`?view=${view}`);
+}
+
+/** Rebuilds one client's brief for a call on the person's calendar (10-30 s), and gives Meeting prep again. */
+export async function refreshPrep(clientId: string): Promise<PanelData['prep']> {
+  const connection = await freshConnection();
+  const response = await withCommandCenterToken(token =>
+    ccFetch(`${connection.url}/api/ai-browser/panel`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ view: 'prep', refresh: clientId }),
+    }),
+  );
+  if (!response.ok) throw new CommandCenterError(await oauthError(response), response.status);
+  return ((await response.json()) as { data: PanelData['prep'] }).data;
 }

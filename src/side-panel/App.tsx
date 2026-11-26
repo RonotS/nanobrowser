@@ -53,7 +53,7 @@ import {
   signInToCommandCenter,
   viewAsNoticeStorage,
 } from '@src/store/command-center';
-import type { PanelView } from '@src/store/command-center';
+import type { PanelPrepCall, PanelView } from '@src/store/command-center';
 import { commandCenterBaseUrl } from '@src/store/command-center-providers';
 import type { TranscriptionSpec } from '@src/llm/transcribe';
 import { createModel } from '@src/llm/providers';
@@ -63,6 +63,9 @@ import { TeachVideo } from './TeachVideo';
 import { PanelRail } from './PanelRail';
 import type { RailView } from './PanelRail';
 import { SideView } from './SideView';
+import { clock, prepDetails } from './side-view';
+import type { SideAsk } from './side-view';
+import type { VoiceTopic } from './VoiceBar';
 
 const NO_PROVIDERS: ProviderConfig[] = [];
 const NO_KEYS: Record<string, string> = {};
@@ -168,6 +171,8 @@ export function App() {
   const [historyOpen, setHistoryOpen] = useState(false);
   /** The voice agent's bar is open. */
   const [voiceOpen, setVoiceOpen] = useState(false);
+  /** What a voice call started from the side panel is about (a meeting's Talk it through). */
+  const [voiceTopic, setVoiceTopic] = useState<VoiceTopic | null>(null);
   const shortcuts = useShortcuts();
   const [autoNotice, setAutoNotice] = useState(false);
   /** A message held back because it looks like a card number. */
@@ -477,9 +482,40 @@ export function App() {
   useEffect(() => {
     if (state.prompts.length) setView('chat');
   }, [state.prompts.length]);
-  const askFromSide = (text: string) => {
-    setDraft(text);
+  /**
+   * Ask on a side view's row (Aaron 2026-11-26): the item's page opens in a new tab beside this one that joins the
+   * open chat (a new chat takes it with its first message), its details go with the next message as quoted page text,
+   * and the question waits in the message box to send or change. The tab opens behind, so the chat stays in front;
+   * the agent brings it forward when it works in it.
+   */
+  const askFromSide = (ask: SideAsk) => {
+    setDraft(ask.text);
+    if (ask.details) {
+      const quote = { text: ask.details, url: ask.url ?? '', title: ask.title };
+      setQuotes(current => [...current.filter(q => q.text !== quote.text), quote]);
+    }
+    const conversationId = state.conversationId;
+    if (ask.url) {
+      void chrome.tabs
+        .create({ url: ask.url, active: false, ...(client && client.tabId >= 0 ? { openerTabId: client.tabId } : {}) })
+        .then(tab => {
+          const tabId = tab.id;
+          if (tabId === undefined) return;
+          if (conversationId) client?.send({ type: 'share-tab', conversationId, tabId });
+          else setPendingTabs(tabs => [...tabs, { tabId, title: ask.title }]);
+        })
+        .catch(error => console.warn('[side] the tab did not open', error));
+    }
     setView('chat');
+  };
+  // Talk it through on a meeting: the voice call opens (or the one going on hears it) with the call's brief.
+  const talkFromSide = (call: PanelPrepCall) => {
+    setVoiceTopic({
+      id: `${call.key}:${Date.now()}`,
+      title: `${call.clientName} ${call.kind.toLowerCase()} at ${clock(call.at)}`,
+      text: prepDetails(call),
+    });
+    setVoiceOpen(true);
   };
 
   if (failure) return <p className="p-4 text-sm text-red-700 dark:text-red-300">{failure}</p>;
@@ -559,7 +595,13 @@ export function App() {
         </IconButton>
         {/* Talk: the voice agent, when Command Center offers a realtime voice. */}
         {commandCenter?.extras?.voice.agents.length ? (
-          <IconButton label={t('voice.title')} pressed={voiceOpen} onClick={() => setVoiceOpen(open => !open)}>
+          <IconButton
+            label={t('voice.title')}
+            pressed={voiceOpen}
+            onClick={() => {
+              setVoiceOpen(open => !open);
+              setVoiceTopic(null);
+            }}>
             <VoiceIcon />
           </IconButton>
         ) : null}
@@ -586,14 +628,18 @@ export function App() {
           stopTask={() => {
             if (client && state.conversationId) client.send({ type: 'stop', conversationId: state.conversationId });
           }}
-          onClose={() => setVoiceOpen(false)}
+          onClose={() => {
+            setVoiceOpen(false);
+            setVoiceTopic(null);
+          }}
           saveHistory={!temporary}
+          topic={voiceTopic}
         />
       ) : null}
       {/* The side views' strip on the right; the chat keeps its place (and its state) while another view shows. */}
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
-          {view !== 'chat' ? <SideView key={`${view}:${railKey}`} view={view} onAsk={askFromSide} /> : null}
+          {view !== 'chat' ? <SideView key={`${view}:${railKey}`} view={view} onAsk={askFromSide} onTalk={talkFromSide} /> : null}
           <div className={view === 'chat' ? 'contents' : 'hidden'}>
             {confirmNewChat ? (
               <div className="flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">

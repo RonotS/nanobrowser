@@ -5,13 +5,14 @@ import type { ReactNode } from 'react';
 import type { PanelView } from '@src/store/command-center';
 import { t } from '@src/ui/i18n';
 import type { MessageKey } from '@src/ui/i18n';
-import { ChatIcon, ListsIcon, ShieldIcon, TasksIcon, TrendDownIcon } from '@src/ui/icons';
+import { CalendarIcon, ChatIcon, ListsIcon, ShieldIcon, TasksIcon, TrendDownIcon } from '@src/ui/icons';
 
 export type RailView = 'chat' | PanelView;
 
 const ICONS: Record<RailView, ReactNode> = {
   chat: <ChatIcon size={17} />,
   tasks: <TasksIcon size={17} />,
+  prep: <CalendarIcon size={17} />,
   lists: <ListsIcon size={17} />,
   quality: <ShieldIcon size={17} />,
   churn: <TrendDownIcon size={17} />,
