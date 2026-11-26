@@ -172,6 +172,11 @@ export interface Conversation {
   tabs: number[];
   /** The last run's status, for History's badge. */
   status: RunStatus;
+  /**
+   * A temporary chat: never listed in Recent tasks, never sent to Command Center (so never in its history or search),
+   * and deleted with everything it holds once no panel shows it and nothing runs in it (src/extension/temporary.ts).
+   */
+  temporary?: boolean;
 }
 
 export interface QueuedMessage {

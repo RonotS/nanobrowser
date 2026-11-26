@@ -42,6 +42,8 @@ export type PanelCommand =
       startUrl?: string;
       /** The message is a saved shortcut's, for the usage counts. */
       shortcut?: true;
+      /** The first message of a temporary chat: the conversation it starts is never saved (Conversation.temporary). */
+      temporary?: true;
     }
   | {
       type: 'queue';

@@ -18,6 +18,7 @@ function stubChrome(initial: Record<string, unknown> = {}) {
 }
 
 const BASE = 'https://cc.example';
+const AT_NOW = new Date().toISOString();
 
 function connection(overrides: Record<string, unknown> = {}) {
   return {
@@ -247,5 +248,172 @@ describe('the address each SDK calls', () => {
     expect(sent[2].auth).toBe('Bearer ks_oauth_at_old');
     expect(sent.map(s => s.model)).toEqual(['claude-sonnet-5-5', 'gpt-6.2-sol', 'grok-4.7']);
     expect(JSON.stringify(sent)).not.toContain('command-center');
+  });
+});
+
+describe("Bash AI's own tools and the brief", () => {
+  const own = {
+    name: 'read_sop',
+    description: 'Read one SOP.',
+    inputSchema: {},
+    readOnly: true,
+    via: 'bash-ai' as const,
+  };
+
+  it('lists its own tools first and drops an MCP tool of the same name', async () => {
+    stubChrome();
+    const { allCommandCenterTools } = await import('../command-center');
+    const tools = allCommandCenterTools({
+      tools: [
+        { name: 'read_sop', description: 'old', inputSchema: {}, readOnly: true },
+        { name: 'list_clients', description: '', inputSchema: {}, readOnly: true },
+      ],
+      knowledge: { brief: 'b', tools: [own], at: AT_NOW },
+    });
+    expect(tools.map(t => [t.name, t.via])).toEqual([
+      ['read_sop', 'bash-ai'],
+      ['list_clients', undefined],
+    ]);
+  });
+
+  it("sends its own tools to Bash AI's route and the rest to MCP", async () => {
+    stubChrome({ 'kai.commandCenter': connection({ knowledge: { brief: 'b', tools: [own], at: AT_NOW } }) });
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+      urls.push(String(url));
+      if (String(url).endsWith('/api/ai-browser/tools/call')) {
+        expect(JSON.parse(String(init.body))).toEqual({ name: 'read_sop', arguments: { id: 'doc1' } });
+        return Response.json({ text: 'Step 1…', isError: false });
+      }
+      return Response.json({ jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: 'clients' }] } });
+    });
+    const { callCommandCenterTool } = await import('../command-center');
+    expect(await callCommandCenterTool('read_sop', { id: 'doc1' })).toEqual({ text: 'Step 1…', isError: false });
+    expect(await callCommandCenterTool('list_clients', {})).toEqual({ text: 'clients', isError: false });
+    expect(urls).toEqual([`${BASE}/api/ai-browser/tools/call`, `${BASE}/api/mcp`]);
+  });
+
+  it("keeps Command Center's read-only mark on its own tools, so remember asks first", async () => {
+    stubChrome({ 'kai.commandCenter': connection({ expiresAt: new Date(Date.now() + 3_600_000).toISOString() }) });
+    vi.stubGlobal('fetch', async (url: string) => {
+      if (String(url).endsWith('/api/ai-browser/knowledge')) {
+        return Response.json({
+          brief: 'new brief',
+          tools: [
+            { name: 'search_knowledge', description: 'Search.', inputSchema: {}, annotations: { readOnlyHint: true } },
+            { name: 'remember', description: 'Save.', inputSchema: {}, annotations: { readOnlyHint: false } },
+          ],
+          at: AT_NOW,
+        });
+      }
+      return new Response('unexpected', { status: 500 });
+    });
+    const { refreshKnowledge, commandCenterStorage } = await import('../command-center');
+    await refreshKnowledge();
+    const saved = await commandCenterStorage.get();
+    expect(saved?.knowledge?.brief).toBe('new brief');
+    expect(saved?.knowledge?.tools.map(t => [t.name, t.readOnly, t.via])).toEqual([
+      ['search_knowledge', true, 'bash-ai'],
+      ['remember', false, 'bash-ai'],
+    ]);
+  });
+
+  it('keeps working with a Command Center that has no brief yet', async () => {
+    stubChrome({ 'kai.commandCenter': connection({ expiresAt: new Date(Date.now() + 60_000).toISOString() }) });
+    vi.stubGlobal('fetch', async (url: string) => {
+      if (String(url).endsWith('/api/oauth/token')) {
+        return Response.json({ access_token: 'ks_oauth_at_new', refresh_token: 'ks_oauth_rt_1', expires_in: 43200 });
+      }
+      if (String(url).endsWith('/api/ai-browser/me')) return Response.json({ user: connection().user, models: [] });
+      if (String(url).endsWith('/api/ai-browser/knowledge')) return new Response('not found', { status: 404 });
+      return Response.json({ jsonrpc: '2.0', id: 1, result: { tools: [] } });
+    });
+    const { renewCommandCenter } = await import('../command-center');
+    const renewed = await renewCommandCenter();
+    expect(renewed.knowledge).toBeUndefined();
+    expect(renewed.accessToken).toBe('ks_oauth_at_new');
+  });
+});
+
+describe('view as (a developer sees Bash AI as another member)', () => {
+  const VIEWED = { id: 'm2', name: 'Zach', role: 'csm' };
+  const headerOf = (init?: RequestInit) => new Headers(init?.headers).get('X-Bash-AI-View-As');
+
+  it('sends the view-as header on every Command Center request only while viewing as someone', async () => {
+    stubChrome({ 'kai.commandCenter': connection(), 'kai.viewAs': VIEWED });
+    const seen: Array<[string, string | null]> = [];
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      seen.push([String(url).replace(BASE, ''), headerOf(init)]);
+      if (String(url).endsWith('/api/ai-browser/view-as'))
+        return Response.json({ data: { allowed: true, members: [] } });
+      if (String(url).endsWith('/api/mcp')) {
+        return Response.json({ jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: 'ok' }] } });
+      }
+      return Response.json({});
+    });
+    const { callCommandCenterTool, commandCenterFetch, listViewAsMembers, viewAsStorage } =
+      await import('../command-center');
+    await callCommandCenterTool('list_clients', {});
+    await commandCenterFetch(`${BASE}/api/ai-browser/llm/anthropic/messages`, {
+      method: 'POST',
+      headers: { 'x-api-key': 'placeholder' },
+    });
+    // The member list is always asked as the person signed in.
+    await listViewAsMembers();
+    await viewAsStorage.set(null);
+    await callCommandCenterTool('list_clients', {});
+    expect(seen).toEqual([
+      ['/api/mcp', 'm2'],
+      ['/api/ai-browser/llm/anthropic/messages', 'm2'],
+      ['/api/ai-browser/view-as', null],
+      ['/api/mcp', null],
+    ]);
+  });
+
+  it('reads the member viewed as, with the real person beside it, and back again on exit', async () => {
+    stubChrome({ 'kai.commandCenter': connection() });
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith('/api/ai-browser/me')) {
+        return headerOf(init)
+          ? Response.json({
+              user: { id: 'm2', name: 'Zach', email: 'z@example.com', role: 'csm' },
+              viewer: { id: 'm1', name: 'Aaron' },
+              models: [],
+            })
+          : Response.json({ user: connection().user, models: [] });
+      }
+      if (String(url).endsWith('/api/ai-browser/knowledge')) return new Response('not found', { status: 404 });
+      return Response.json({ jsonrpc: '2.0', id: 1, result: { tools: [] } });
+    });
+    const { setViewAs } = await import('../command-center');
+    const viewing = await setViewAs(VIEWED);
+    expect([viewing.user.name, viewing.viewer?.name]).toEqual(['Zach', 'Aaron']);
+    const back = await setViewAs(null);
+    expect([back.user.name, back.viewer]).toEqual(['Aaron', undefined]);
+  });
+
+  it('drops a view-as Command Center refuses, says why, and reads as the person signed in again', async () => {
+    stubChrome({ 'kai.commandCenter': connection() });
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith('/api/ai-browser/me')) {
+        return headerOf(init)
+          ? Response.json({ error: 'That member is not active.' }, { status: 403 })
+          : Response.json({ user: connection().user, models: [] });
+      }
+      if (String(url).endsWith('/api/ai-browser/knowledge')) return new Response('not found', { status: 404 });
+      return Response.json({ jsonrpc: '2.0', id: 1, result: { tools: [] } });
+    });
+    const { commandCenterStorage, setViewAs, viewAsStorage } = await import('../command-center');
+    await expect(setViewAs({ id: 'gone', name: 'Former', role: 'isa' })).rejects.toThrow('That member is not active.');
+    expect(await viewAsStorage.get()).toBeNull();
+    const saved = await commandCenterStorage.get();
+    expect([saved?.user.name, saved?.viewer]).toEqual(['Aaron', undefined]);
+  });
+
+  it('hides the picker from a person Command Center does not let view as others', async () => {
+    stubChrome({ 'kai.commandCenter': connection() });
+    vi.stubGlobal('fetch', async () => Response.json({ error: 'Developers only.' }, { status: 403 }));
+    const { listViewAsMembers } = await import('../command-center');
+    expect(await listViewAsMembers()).toEqual({ allowed: false, members: [] });
   });
 });

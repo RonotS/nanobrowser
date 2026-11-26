@@ -172,6 +172,7 @@ export function Composer({
   files = [],
   onAttach,
   onScreenshot,
+  onTeachVideo,
   onRemoveFile,
   transcribe,
   onOpenSettings,
@@ -206,6 +207,8 @@ export function Composer({
   onAttach?: (files: File[]) => void;
   /** "Screenshot of this tab" in the + menu. */
   onScreenshot?: () => void;
+  /** "Teach from a video" in the + menu: a screen recording to turn into an SOP draft. */
+  onTeachVideo?: (file: File) => void;
   onRemoveFile?: (id: string) => void;
   /**
    * Voice input: turns a recording into text with the voice model chosen in Settings, or null when none is chosen.
@@ -230,6 +233,7 @@ export function Composer({
   const [recall, setRecall] = useState<number | null>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
+  const videoPicker = useRef<HTMLInputElement>(null);
   const [menu, setMenu] = useState(false);
   const [voice, setVoice] = useState<VoicePhase>('idle');
   const [voiceNotice, setVoiceNotice] = useState<{
@@ -577,9 +581,35 @@ export function Composer({
                         {t('composer.screenshot')}
                       </button>
                     ) : null}
+                    {onTeachVideo ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="rounded-lg px-3 py-1.5 text-left hover:bg-nb-surface focus-visible:bg-nb-surface focus-visible:outline-none"
+                        onClick={() => {
+                          setMenu(false);
+                          videoPicker.current?.click();
+                        }}>
+                        {t('composer.teachVideo')}
+                      </button>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
+              {onTeachVideo ? (
+                <input
+                  ref={videoPicker}
+                  type="file"
+                  accept="video/*,.mov,.mp4,.m4v,.webm,.mkv"
+                  hidden
+                  aria-hidden
+                  onChange={e => {
+                    const video = e.target.files?.[0];
+                    if (video) onTeachVideo(video);
+                    e.target.value = '';
+                  }}
+                />
+              ) : null}
               <input
                 ref={picker}
                 type="file"

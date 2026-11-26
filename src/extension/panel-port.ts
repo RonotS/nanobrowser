@@ -26,6 +26,8 @@ export function listenForPanels(manager: RunManager): void {
       open = false;
       manager.connections.delete(connection);
       connection.unsubscribe?.();
+      // A temporary chat this panel showed goes once no other panel shows it (src/extension/temporary.ts).
+      manager.panelClosed();
     });
     const run = (command: PanelCommand) =>
       handle(manager, connection, command).catch(error => {

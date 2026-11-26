@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BRIEF_LIMIT,
   CC_ACTION,
   CC_READ,
   commandCenterAgentTools,
   commandCenterPrompt,
+  companySection,
   firstSentence,
   signature,
 } from '../command-center';
@@ -94,5 +96,25 @@ describe('the Command Center prompt', () => {
     const section = commandCenterPrompt(TOOLS);
     expect(agentSystemPrompt({ tools: ['snapshot'], commandCenter: section })).toContain('## Command Center');
     expect(agentSystemPrompt({ tools: ['snapshot'] })).not.toContain('## Command Center');
+  });
+});
+
+describe('the company brief in the prompt', () => {
+  it('adds the brief as company knowledge, after the tools', () => {
+    const text = commandCenterPrompt(
+      TOOLS,
+      { name: 'Bennet', role: 'csm' },
+      'Command Center: https://cc.example\nDialer: https://dialer.example',
+    );
+    expect(text).toContain('## About Kinetic Scaling');
+    expect(text).toContain('<company-brief>\nCommand Center: https://cc.example');
+    expect(text.indexOf('- list_clients(')).toBeLessThan(text.indexOf('## About Kinetic Scaling'));
+    expect(text).toMatch(/guide for new team members/);
+  });
+
+  it('is left out without a brief, and kept even without tools', () => {
+    expect(commandCenterPrompt(TOOLS)).not.toContain('About Kinetic Scaling');
+    expect(commandCenterPrompt([], undefined, 'Systems: …')).toContain('About Kinetic Scaling');
+    expect(companySection('x'.repeat(BRIEF_LIMIT + 50))).toContain('the brief was cut here');
   });
 });

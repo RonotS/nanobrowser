@@ -8,6 +8,8 @@ import { upgradeFromOldVersion } from './upgrade';
 import { analyticsReady, listenForSwitches, recordInstall } from './analytics';
 import { DATA_REQUEST } from '@src/ui/protocol';
 import { settingsStorage } from '@src/store/settings';
+import { refreshIfStale } from '@src/store/command-center';
+import { START_SWEEP_DELAY_MS } from './temporary';
 
 const DARK_DEFAULT_KEY = 'kai.darkDefault';
 
@@ -42,6 +44,13 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, reply) => {
 });
 chrome.alarms?.onAlarm.addListener(() => undefined);
 void runManager.restore().catch(error => console.error('[runs] restore failed', error));
+// The company brief and Command Center's tools, read again when the saved copy is old or has no brief.
+void refreshIfStale().catch(error => console.warn('[command-center] refresh failed', error));
+// A temporary chat left by a panel that crashed or a worker that stopped goes, once the open panels have connected again.
+setTimeout(
+  () => void runManager.sweepTemporary().catch(error => console.warn('[temporary] start sweep failed', error)),
+  START_SWEEP_DELAY_MS,
+);
 // Conversations from before Command Center kept the history go there once.
 void runManager.saveAllHistoryOnce().catch(error => console.error('[history] backfill failed', error));
 // Dark became the default (2026-11-25, as Command Center is): a theme still on the old default, System, moves to Dark

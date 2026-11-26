@@ -36,6 +36,8 @@ export async function createConversation(init: {
   mode: PermissionMode;
   title?: string;
   tabs?: number[];
+  /** A temporary chat (see Conversation.temporary). */
+  temporary?: boolean;
 }): Promise<Conversation> {
   const at = now();
   const conversation: Conversation = {
@@ -47,6 +49,7 @@ export async function createConversation(init: {
     mode: init.mode,
     tabs: init.tabs ?? [],
     status: 'idle',
+    ...(init.temporary ? { temporary: true } : {}),
   };
   await (await db()).put('conversations', conversation);
   return conversation;

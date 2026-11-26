@@ -32,17 +32,32 @@ import { installTestHook } from './test-hook';
 import type { SavedShortcut } from '@src/store/shortcuts';
 import { useShortcuts } from '@src/ui/shortcuts';
 import { AutoNotice } from '@src/ui/auto-notice';
-import { HistoryIcon, LogoMark, MoonIcon, NewChatIcon, SettingsIcon, SunIcon, VoiceIcon } from '@src/ui/icons';
+import {
+  HistoryIcon,
+  LogoMark,
+  MoonIcon,
+  NewChatIcon,
+  SettingsIcon,
+  SunIcon,
+  TemporaryIcon,
+  VoiceIcon,
+} from '@src/ui/icons';
 import { VoiceBar } from './VoiceBar';
 import { roleLabel } from './role-label';
 import {
   commandCenterFetch,
   commandCenterStorage,
   commandCenterUrl,
+  setViewAs,
   signInToCommandCenter,
+  viewAsNoticeStorage,
 } from '@src/store/command-center';
 import { commandCenterBaseUrl } from '@src/store/command-center-providers';
 import type { TranscriptionSpec } from '@src/llm/transcribe';
+import { createModel } from '@src/llm/providers';
+import type { ChatModel } from '@src/llm/providers';
+import { TEACH_MODEL } from '@src/llm/teach';
+import { TeachVideo } from './TeachVideo';
 
 const NO_PROVIDERS: ProviderConfig[] = [];
 const NO_KEYS: Record<string, string> = {};
@@ -86,6 +101,8 @@ export function App() {
   // Voice input: through Command Center's transcription model when signed in (the company's key, added by Command
   // Center), else the voice model chosen in Settings with its own key.
   const commandCenter = useStorage(commandCenterStorage, null);
+  /** Why a view-as ended without the person ending it: Command Center refused the member. */
+  const viewAsNotice = useStorage(viewAsNoticeStorage, null);
   const ccTranscription = commandCenter?.extras?.voice.transcription;
   const voice: TranscriptionSpec | null = ccTranscription
     ? {
@@ -104,6 +121,39 @@ export function App() {
         });
       }
     : null;
+  // "Teach from a video": Claude through Command Center writes the SOP draft, and Command Center's transcription reads
+  // the narration (none: the steps come from the stills alone). Only for someone signed in to Command Center.
+  const [teachFile, setTeachFile] = useState<File | null>(null);
+  const teachModelName = commandCenter
+    ? (
+        commandCenter.models.find(m => m.provider === 'claude' && m.name === TEACH_MODEL) ??
+        commandCenter.models.find(m => m.provider === 'claude')
+      )?.name
+    : undefined;
+  const teachUrl = commandCenter?.url;
+  const teachModel = useMemo<ChatModel | null>(
+    () =>
+      teachUrl && teachModelName
+        ? createModel(
+            {
+              kind: 'anthropic',
+              modelName: teachModelName,
+              apiKey: 'command-center',
+              baseUrl: commandCenterBaseUrl(teachUrl, 'claude'),
+            },
+            { fetch: commandCenterFetch },
+          )
+        : null,
+    [teachUrl, teachModelName],
+  );
+  const teachTranscribe =
+    voice && ccTranscription
+      ? (audio: Uint8Array) =>
+          transcribeAudio(voice, audio, {
+            language: voiceLanguage(settings.dictationLanguage),
+            fetch: commandCenterFetch,
+          })
+      : null;
   const [client, setClient] = useState<PanelClient | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [state, dispatch] = useReducer(reduce, INITIAL);
@@ -120,6 +170,8 @@ export function App() {
   /** Tabs picked with @ before the conversation exists; shared with the first message. */
   const [pendingTabs, setPendingTabs] = useState<Array<{ tabId: number; title: string }>>([]);
   const [confirmNewChat, setConfirmNewChat] = useState(false);
+  /** The next chat is a temporary one (before its first message; after it, the conversation says so). */
+  const [temporaryDraft, setTemporaryDraft] = useState(false);
   /** Text to put back into the composer: queued messages returned on Stop, or one taken back to edit. */
   const [draft, setDraft] = useState('');
   /** Files attached to the next message, already in the blob store. */
@@ -227,6 +279,8 @@ export function App() {
   );
 
   const conversation = state.conversation;
+  /** A temporary chat: never saved, deleted once left (src/extension/temporary.ts). */
+  const temporary = conversation ? !!conversation.temporary : temporaryDraft;
   const mode: PermissionMode = conversation?.mode ?? draftMode ?? settings.defaultMode;
   // The conversation's live pair, the draft of a new chat, or one made from the settings. A model that is no longer
   // configured falls back to the default model, then to the first one there is.
@@ -310,7 +364,22 @@ export function App() {
     setDraftMode(null);
     setDraftPair(null);
     setPendingTabs([]);
+    setTemporaryDraft(false);
     if (client) client.send({ type: 'new-chat', tabId: client.tabId });
+  };
+
+  /**
+   * Starts a temporary chat, or leaves one for a normal new chat. Leaving it is what deletes it: the worker drops a
+   * temporary conversation once no panel shows it. Not offered while a task runs, so it never has to ask first.
+   */
+  const toggleTemporary = () => {
+    if (temporary) {
+      if (state.conversationId) newChat();
+      else setTemporaryDraft(false);
+      return;
+    }
+    if (state.conversationId) newChat();
+    setTemporaryDraft(true);
   };
 
   /**
@@ -360,6 +429,7 @@ export function App() {
       reasoning,
       ...(extra.startUrl ? { startUrl: extra.startUrl } : {}),
       ...(extra.shortcut ? { shortcut: true as const } : {}),
+      ...(!state.conversationId && temporaryDraft ? { temporary: true as const } : {}),
     });
     setPendingTabs([]);
     setQuotes([]);
@@ -400,8 +470,26 @@ export function App() {
           className="ml-1 flex shrink-0 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-nb-accent">
           <LogoMark size={20} />
         </a>
-        {/* Who is signed in: Chrome's own title bar above shows only the extension's name, so it goes here. */}
-        {commandCenter ? (
+        {/* Who is signed in: Chrome's own title bar above shows only the extension's name, so it goes here. While a
+            developer views Bash AI as another member, an amber chip says whom, with Exit. */}
+        {commandCenter?.viewer ? (
+          <span className="ml-1.5 flex min-w-0 flex-1 items-center gap-1 text-xs">
+            <span
+              className="flex min-w-0 items-baseline gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-amber-800 dark:text-amber-200"
+              title={t('viewAs.chipTitle', { viewer: commandCenter.viewer.name })}>
+              <span className="truncate font-semibold">{t('viewAs.chip', { name: commandCenter.user.name })}</span>
+              {roleLabel(commandCenter.user.role) ? (
+                <span className="shrink-0 text-[10px] opacity-80">· {roleLabel(commandCenter.user.role)}</span>
+              ) : null}
+            </span>
+            <button
+              type="button"
+              className="shrink-0 rounded px-1 text-[11px] font-medium text-amber-800 underline hover:text-amber-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-nb-accent dark:text-amber-200 dark:hover:text-amber-50"
+              onClick={() => void setViewAs(null).catch(error => console.warn('[view-as] exit failed', error))}>
+              {t('viewAs.exit')}
+            </button>
+          </span>
+        ) : commandCenter ? (
           <span className="ml-1.5 flex min-w-0 flex-1 items-baseline gap-1.5 text-xs" title={commandCenter.user.email}>
             <span className="truncate font-semibold text-nb-fg">{commandCenter.user.name}</span>
             {roleLabel(commandCenter.user.role) ? (
@@ -417,6 +505,14 @@ export function App() {
         <h1 className="sr-only">{conversation?.title || t('panel.newChat')}</h1>
         <IconButton label={t('panel.newChat')} onClick={() => newChat(confirmNewChat)}>
           <NewChatIcon />
+        </IconButton>
+        <IconButton
+          label={t(temporary ? 'panel.temporary.leave' : 'panel.temporary.start')}
+          title={active ? t('panel.temporary.busy') : undefined}
+          pressed={temporary}
+          disabled={active}
+          onClick={toggleTemporary}>
+          <TemporaryIcon />
         </IconButton>
         {/* Recent tasks opens once the conversation in this tab stops; other tabs' panels are free. */}
         <IconButton
@@ -467,6 +563,22 @@ export function App() {
           <button type="button" className="underline" onClick={() => setConfirmNewChat(false)}>
             {t('common.cancel')}
           </button>
+        </div>
+      ) : null}
+      {viewAsNotice ? (
+        <div className="flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
+          <span className="flex-1">{t('viewAs.ended', { reason: viewAsNotice })}</span>
+          <button type="button" className="underline" onClick={() => void viewAsNoticeStorage.set(null)}>
+            {t('common.close')}
+          </button>
+        </div>
+      ) : null}
+      {temporary ? (
+        <div
+          role="status"
+          className="flex items-center gap-2 border-b border-nb-border/60 bg-nb-surface px-3 py-1 text-[11px] text-nb-muted">
+          <TemporaryIcon size={13} />
+          <span className="flex-1">{t('panel.temporary.banner')}</span>
         </div>
       ) : null}
       {!empty ? (
@@ -520,6 +632,7 @@ export function App() {
           ) : null}
         </div>
       )}
+      <TeachVideo file={teachFile} model={teachModel} transcribe={teachTranscribe} onClose={() => setTeachFile(null)} />
       <HistoryDrawer
         open={historyOpen}
         onOpenChange={setHistoryOpen}
@@ -650,6 +763,7 @@ export function App() {
         onScreenshot={() =>
           client?.send({ type: 'screenshot-tab', tabId: client.tabId, conversationId: state.conversationId })
         }
+        onTeachVideo={teachModel ? setTeachFile : undefined}
         onRemoveFile={id => {
           setFiles(current => current.filter(f => f.ref.id !== id));
           setAttachError(null);

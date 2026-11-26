@@ -21,7 +21,8 @@ export function waveTarget(mode: WaveMode, level: number, t: number): number {
     case 'connecting':
       return 0.12 + 0.08 * Math.sin(t * 3);
     default:
-      return 0.06;
+      // Idle: a soft, slow breath, so the wave looks ready rather than flat.
+      return 0.13 + 0.05 * Math.sin(t * 1.4);
   }
 }
 
@@ -69,7 +70,7 @@ export function Waveform({ mode, level, compact }: { mode: WaveMode; level: () =
       gradient.addColorStop(0.55, '#2563EB');
       gradient.addColorStop(1, '#7C3AED');
       ctx.fillStyle = gradient;
-      ctx.globalAlpha = m === 'idle' ? 0.45 : m === 'connecting' ? 0.7 : 1;
+      ctx.globalAlpha = m === 'idle' ? 0.6 : m === 'connecting' ? 0.75 : 1;
       for (let i = 0; i < n; i++) {
         const h = Math.max(BAR, barHeight(i, n, amp, m, t, still) * (height - 4));
         const x = offset + i * (BAR + GAP);

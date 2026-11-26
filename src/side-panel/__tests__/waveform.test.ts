@@ -6,7 +6,9 @@ describe('the voice wave', () => {
     expect(waveTarget('listening', 0.5, 0)).toBeCloseTo(0.65);
     expect(waveTarget('listening', 0, 0)).toBe(0.1);
     expect(waveTarget('speaking', 1, 0)).toBe(1);
-    expect(waveTarget('idle', 1, 0)).toBe(0.06);
+    // Idle breathes softly, whatever the sound.
+    expect(waveTarget('idle', 1, 0)).toBeCloseTo(0.13);
+    expect(waveTarget('idle', 1, Math.PI / 2.8)).toBeCloseTo(0.18);
     expect(waveTarget('thinking', 0, 0)).toBe(0.3);
   });
 

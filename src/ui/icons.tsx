@@ -30,6 +30,15 @@ export const NewChatIcon = (p: IconProps) => (
   </Svg>
 );
 
+/** Temporary chat: an eye struck through, for a chat that is not kept. */
+export const TemporaryIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M3 3l18 18" />
+    <path d="M10.6 5.1A9.7 9.7 0 0 1 12 5c5 0 8.5 4.3 9.5 7-.4 1-1.1 2.2-2.1 3.3M6.6 6.6C4.6 7.9 3.1 9.9 2.5 12c1 2.7 4.5 7 9.5 7 1.7 0 3.2-.5 4.5-1.2" />
+    <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+  </Svg>
+);
+
 /** History: a clock with an arrow turning back. */
 export const HistoryIcon = (p: IconProps) => (
   <Svg {...p}>

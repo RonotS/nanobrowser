@@ -45,6 +45,23 @@ export interface CommandCenterTool {
   inputSchema: Record<string, unknown>;
   /** The tool only reads. A tool without the mark is treated as one that changes something. */
   readOnly: boolean;
+  /**
+   * Where the tool runs: Command Center's MCP endpoint (absent), or Bash AI's own routes (`bash-ai`: the SOPs and the
+   * person's tasks, which every role may read through Bash AI).
+   */
+  via?: 'bash-ai';
+}
+
+/**
+ * What Bash AI knows about the company, from Command Center (`/api/ai-browser/knowledge`): a brief written for this
+ * person (the company's systems and links, their role, the pages they can open, where their tasks are, the team's
+ * rules and memories, the SOPs), and the tools to read further.
+ */
+export interface CommandCenterKnowledge {
+  brief: string;
+  tools: CommandCenterTool[];
+  /** When Command Center wrote the brief. */
+  at: string;
 }
 
 /** A media or voice model Command Center offers, on OpenAI or Grok. */
@@ -88,8 +105,12 @@ export interface CommandCenterConnection {
   tools: CommandCenterTool[];
   /** Image and video generation, dictation and the voice agent; absent in a connection saved by an older build. */
   extras?: CommandCenterExtras;
+  /** The company brief and Bash AI's own tools; absent when Command Center has none yet. */
+  knowledge?: CommandCenterKnowledge;
   /** When the models and tools were last read from Command Center. */
   syncedAt: string;
+  /** While a developer views Bash AI as another member: the real person. `user` is then the member viewed. */
+  viewer?: { id: string; name: string };
 }
 
 /** Null when nobody is signed in. */
@@ -105,6 +126,41 @@ interface ClientRegistration {
 }
 
 const registrationStorage = createStorage<ClientRegistration | null>('kai.ccClient', null);
+
+/** A member a developer views Bash AI as. */
+export interface ViewAs {
+  id: string;
+  name: string;
+  role: string;
+}
+
+/**
+ * View as (Aaron 2026-11-25: a developer "switches to their logins" to see Bash AI from a staff member's point of view):
+ * while set, Command Center answers every Bash AI request as this member, with their role, tools, brief and chats, and
+ * refuses changes. Null for the person signed in.
+ */
+export const viewAsStorage = createStorage<ViewAs | null>('kai.viewAs', null, { liveUpdate: true });
+
+/** Why a view-as ended without the person ending it (Command Center refused it), for the panel to say once. */
+export const viewAsNoticeStorage = createStorage<string | null>('kai.viewAsNotice', null, { liveUpdate: true });
+
+/** The header Command Center reads to answer as another member. */
+export const VIEW_AS_HEADER = 'X-Bash-AI-View-As';
+
+/** The headers that make Command Center answer as `viewAs`; none for the person signed in. */
+export function viewAsHeaders(viewAs: Pick<ViewAs, 'id'> | null): Record<string, string> {
+  return viewAs ? { [VIEW_AS_HEADER]: viewAs.id } : {};
+}
+
+/**
+ * Every request to Command Center's Bash AI routes (`/api/ai-browser/*`, the model route included) and to its MCP
+ * endpoint goes through here, so a view-as reaches all of them at once. The OAuth endpoints and the view-as list do not.
+ */
+async function ccFetch(input: string | URL | Request, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers);
+  for (const [name, value] of Object.entries(viewAsHeaders(await viewAsStorage.get()))) headers.set(name, value);
+  return fetch(input, { ...init, headers });
+}
 
 /** Why Command Center refused, said in plain words for the panel and the settings page. */
 export class CommandCenterError extends Error {
@@ -248,6 +304,8 @@ interface MeAnswer {
   defaultModel?: CommandCenterConnection['defaultModel'];
   media?: Partial<CommandCenterExtras['media']>;
   voice?: Partial<CommandCenterExtras['voice']>;
+  /** Set while viewing as another member: the real person. */
+  viewer?: { id: string; name: string };
 }
 
 /** The extras from `/me`, with every part present. */
@@ -259,7 +317,7 @@ export function extrasOf(me: Pick<MeAnswer, 'media' | 'voice'>): CommandCenterEx
 }
 
 async function readMe(base: string, token: string): Promise<MeAnswer> {
-  const response = await fetch(`${base}/api/ai-browser/me`, { headers: { Authorization: `Bearer ${token}` } });
+  const response = await ccFetch(`${base}/api/ai-browser/me`, { headers: { Authorization: `Bearer ${token}` } });
   if (!response.ok) throw new CommandCenterError(await oauthError(response), response.status);
   const me = (await response.json()) as MeAnswer;
   if (!me?.user?.id) throw new CommandCenterError('Command Center did not say who signed in.');
@@ -274,7 +332,7 @@ async function mcp(
   params: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<Response> {
-  return fetch(`${base}/api/mcp`, {
+  return ccFetch(`${base}/api/mcp`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ jsonrpc: '2.0', id: crypto.randomUUID(), method, params }),
@@ -318,12 +376,55 @@ async function listTools(base: string, token: string): Promise<CommandCenterTool
 }
 
 /** Reads who signed in, their models and their tools, and saves the connection. */
+/**
+ * The company brief for this person, and Bash AI's own tools. A Command Center without the route (older) gives
+ * none, and the AI works without it.
+ */
+async function readKnowledge(base: string, token: string): Promise<CommandCenterKnowledge | undefined> {
+  const response = await ccFetch(`${base}/api/ai-browser/knowledge`, { headers: { Authorization: `Bearer ${token}` } });
+  if (response.status === 404) return undefined;
+  if (!response.ok) throw new CommandCenterError(await oauthError(response), response.status);
+  const body = (await response.json()) as { brief?: string; tools?: WireTool[]; at?: string };
+  return {
+    brief: String(body.brief ?? ''),
+    // Command Center marks which of its own tools change something (`remember`): those ask first in Ask mode, as
+    // every Command Center action does.
+    tools: usableTools(body.tools ?? []).map(t => ({ ...t, via: 'bash-ai' as const })),
+    at: body.at ?? new Date().toISOString(),
+  };
+}
+
+/** Every tool the AI may name: Command Center's MCP tools and Bash AI's own, without repeats. */
+export function allCommandCenterTools(
+  connection: Pick<CommandCenterConnection, 'tools' | 'knowledge'>,
+): CommandCenterTool[] {
+  const own = connection.knowledge?.tools ?? [];
+  return [...own, ...connection.tools.filter(t => !own.some(o => o.name === t.name))];
+}
+
 async function saveConnection(
   base: string,
   id: string,
   tokens: { accessToken: string; refreshToken: string; expiresAt: string },
 ): Promise<CommandCenterConnection> {
-  const [me, tools] = await Promise.all([readMe(base, tokens.accessToken), listTools(base, tokens.accessToken)]);
+  // Who Command Center answers as comes first: a view-as it refuses (the member left, or the person may no longer view
+  // as others) ends here, with the reason kept for the panel, and the rest is read as the person signed in.
+  let me: MeAnswer;
+  try {
+    me = await readMe(base, tokens.accessToken);
+  } catch (error) {
+    if (!(error instanceof CommandCenterError && error.status === 403 && (await viewAsStorage.get()))) throw error;
+    await viewAsStorage.set(null);
+    await viewAsNoticeStorage.set(error.message);
+    me = await readMe(base, tokens.accessToken);
+  }
+  const [tools, knowledge] = await Promise.all([
+    listTools(base, tokens.accessToken),
+    readKnowledge(base, tokens.accessToken).catch(error => {
+      console.warn('[command-center] no company brief', error);
+      return undefined;
+    }),
+  ]);
   const connection: CommandCenterConnection = {
     url: base,
     clientId: id,
@@ -333,6 +434,8 @@ async function saveConnection(
     ...(me.defaultModel ? { defaultModel: me.defaultModel } : {}),
     tools,
     extras: extrasOf(me),
+    ...(knowledge ? { knowledge } : {}),
+    ...(me.viewer ? { viewer: me.viewer } : {}),
     syncedAt: new Date().toISOString(),
   };
   await commandCenterStorage.set(connection);
@@ -354,6 +457,7 @@ export async function signInToCommandCenter(): Promise<CommandCenterConnection> 
 /** Signs out: Command Center ends the connection, and the tokens and the model cards are removed here. */
 export async function signOutOfCommandCenter(): Promise<void> {
   const connection = await commandCenterStorage.get();
+  await endViewAs();
   await commandCenterStorage.set(null);
   await syncCommandCenterProviders(null);
   if (connection) {
@@ -386,6 +490,7 @@ export function renewCommandCenter(): Promise<CommandCenterConnection> {
     } catch (error) {
       // A refused refresh token (revoked in Command Center, or unused for 90 days) means signing in again.
       if (error instanceof CommandCenterError && error.status && error.status < 500) {
+        await endViewAs();
         await commandCenterStorage.set(null);
         await syncCommandCenterProviders(null);
         throw new CommandCenterError('Your Command Center sign-in has ended. Sign in again in Settings.');
@@ -431,7 +536,7 @@ export const commandCenterFetch: typeof fetch = (input, init) =>
     const headers = new Headers(init?.headers);
     if (headers.has('x-api-key')) headers.set('x-api-key', token);
     else headers.set('Authorization', `Bearer ${token}`);
-    return globalThis.fetch(input, { ...init, headers });
+    return ccFetch(input, { ...init, headers });
   });
 
 /** Runs one Command Center tool as the signed-in person. The answer is text for the model. */
@@ -441,6 +546,20 @@ export async function callCommandCenterTool(
   signal?: AbortSignal,
 ): Promise<{ text: string; isError: boolean }> {
   const connection = await freshConnection();
+  // Bash AI's own tools (the SOPs, the person's tasks) run on its own route; the rest on the MCP endpoint.
+  if (connection.knowledge?.tools.some(t => t.name === name)) {
+    const own = await withCommandCenterToken(token =>
+      ccFetch(`${connection.url}/api/ai-browser/tools/call`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, arguments: args ?? {} }),
+        signal,
+      }),
+    );
+    if (!own.ok) return { text: `error: ${await oauthError(own)}`, isError: true };
+    const answer = (await own.json()) as { text?: string; isError?: boolean };
+    return { text: String(answer.text ?? ''), isError: !!answer.isError };
+  }
   const response = await withCommandCenterToken(token =>
     mcp(connection.url, token, 'tools/call', { name, arguments: args ?? {} }, signal),
   );
@@ -473,7 +592,7 @@ export async function requestVoiceSession(
 ): Promise<VoiceSessionGrant> {
   const connection = await freshConnection();
   const response = await withCommandCenterToken(token =>
-    fetch(`${connection.url}/api/ai-browser/realtime/${provider}`, {
+    ccFetch(`${connection.url}/api/ai-browser/realtime/${provider}`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(options),
@@ -493,6 +612,42 @@ export interface ChatForCommandCenter {
   transcript: unknown[];
 }
 
+/** An SOP draft written from a video ("Teach from a video"). */
+export interface SopDraft {
+  title: string;
+  markdown: string;
+  /** The video's file name and length, for the draft's note in Command Center. */
+  sourceName: string;
+  durationSec: number;
+}
+
+/** Where Command Center put a saved draft: a Google Doc in the SOPs folder's drafts. */
+export interface SavedSopDraft {
+  id: string;
+  name: string;
+  link: string;
+  folder: string;
+}
+
+/**
+ * Saves an SOP draft as a Google Doc in the SOPs folder's drafts, under the signed-in person. A manager approves it by
+ * moving it into a role's folder. Throws Command Center's own words when it refuses.
+ */
+export async function saveSopDraft(draft: SopDraft): Promise<SavedSopDraft> {
+  const connection = await commandCenterStorage.get();
+  if (!connection) throw new CommandCenterError('Sign in to Command Center to save the draft.');
+  const response = await commandCenterFetch(`${connection.url}/api/ai-browser/sop-drafts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(draft),
+  });
+  if (!response.ok) throw new CommandCenterError(await oauthError(response), response.status);
+  const body = (await response.json().catch(() => null)) as { data?: Partial<SavedSopDraft> } | null;
+  const data = body?.data;
+  if (!data?.link) throw new CommandCenterError('Command Center did not say where it saved the draft.');
+  return { id: data.id ?? '', name: data.name ?? draft.title, link: data.link, folder: data.folder ?? 'SOP drafts' };
+}
+
 /**
  * Keeps a conversation in Command Center, under the signed-in person. The whole transcript is sent each time and
  * replaces the stored one, so a save that fails is made good by the next. Nothing is sent when signed out.
@@ -501,11 +656,85 @@ export async function saveChatToCommandCenter(chat: ChatForCommandCenter): Promi
   const connection = await commandCenterStorage.get();
   if (!connection) return;
   const response = await withCommandCenterToken(token =>
-    fetch(`${connection.url}/api/ai-browser/conversations`, {
+    ccFetch(`${connection.url}/api/ai-browser/conversations`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(chat),
     }),
   );
   if (!response.ok) throw new CommandCenterError(await oauthError(response), response.status);
+}
+
+/**
+ * Reads the company brief again now, without renewing the sign-in: after `remember`, so the next message's prompt has
+ * the new memory. A failure keeps the brief there was.
+ */
+export async function refreshKnowledge(): Promise<void> {
+  const connection = await freshConnection();
+  const knowledge = await readKnowledge(connection.url, connection.accessToken);
+  if (!knowledge) return;
+  const latest = await commandCenterStorage.get();
+  if (latest && latest.url === connection.url) await commandCenterStorage.set({ ...latest, knowledge });
+}
+
+/**
+ * Re-reads what Command Center offers (models, tools, the company brief) when the saved copy has no brief or is more
+ * than six hours old: a worker start picks up a new brief without waiting for the token's renewal.
+ */
+export async function refreshIfStale(maxAgeMs = 6 * 60 * 60_000): Promise<void> {
+  const connection = await commandCenterStorage.get();
+  if (!connection) return;
+  const at = Date.parse(connection.knowledge?.at ?? connection.syncedAt);
+  if (connection.knowledge && Number.isFinite(at) && Date.now() - at < maxAgeMs) return;
+  await renewCommandCenter();
+}
+
+/** Clears a view-as and its notice (sign-out, an ended sign-in). */
+async function endViewAs(): Promise<void> {
+  await viewAsStorage.set(null);
+  await viewAsNoticeStorage.set(null);
+}
+
+/** A member a developer may view Bash AI as. */
+export interface ViewAsMember {
+  id: string;
+  name: string;
+  role: string;
+}
+
+/**
+ * The members this person may view Bash AI as. Asked as themselves, never as the member viewed. A role that may not
+ * view as others, or a Command Center without the route, gives none, and the feature stays hidden.
+ */
+export async function listViewAsMembers(): Promise<{ allowed: boolean; members: ViewAsMember[] }> {
+  const connection = await freshConnection();
+  const response = await withCommandCenterToken(token =>
+    fetch(`${connection.url}/api/ai-browser/view-as`, { headers: { Authorization: `Bearer ${token}` } }),
+  );
+  if (response.status === 403 || response.status === 404) return { allowed: false, members: [] };
+  if (!response.ok) throw new CommandCenterError(await oauthError(response), response.status);
+  const body = (await response.json()) as { data?: { allowed?: boolean; members?: ViewAsMember[] } };
+  return { allowed: !!body.data?.allowed, members: body.data?.members ?? [] };
+}
+
+/**
+ * Views Bash AI as `member`, or as oneself again with null: the choice is kept, and who Command Center answers as, the
+ * tools and the brief are read again with it. Throws Command Center's reason when it refuses the member (the view-as is
+ * then already off).
+ */
+export async function setViewAs(member: ViewAs | null): Promise<CommandCenterConnection> {
+  await viewAsNoticeStorage.set(null);
+  await viewAsStorage.set(member);
+  const connection = await freshConnection();
+  const saved = await saveConnection(connection.url, connection.clientId, {
+    accessToken: connection.accessToken,
+    refreshToken: connection.refreshToken,
+    expiresAt: connection.expiresAt,
+  });
+  if (member && !(await viewAsStorage.get())) {
+    const reason = (await viewAsNoticeStorage.get()) ?? 'Command Center would not show Bash AI as that person.';
+    await viewAsNoticeStorage.set(null);
+    throw new CommandCenterError(reason, 403);
+  }
+  return saved;
 }

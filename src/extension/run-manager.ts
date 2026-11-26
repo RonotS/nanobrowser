@@ -15,13 +15,16 @@ import {
   firstSentence,
 } from '@src/agent/command-center';
 import {
+  allCommandCenterTools,
   callCommandCenterTool,
   commandCenterFetch,
   commandCenterStorage,
   NO_EXTRAS,
+  refreshKnowledge,
   saveChatToCommandCenter,
 } from '@src/store/command-center';
 import { historyTranscript } from '@src/agent/history';
+import { CLOSED_PANEL_GRACE_MS, inHistory, savedToCommandCenter, temporaryToDrop } from './temporary';
 import { commandCenterBaseUrl } from '@src/store/command-center-providers';
 import { GENERATE_IMAGE, GENERATE_VIDEO, mediaAgentTools, mediaRequest } from '@src/agent/media';
 import { extensionOf, generateImages, generateVideo } from '@src/llm/media';
@@ -664,11 +667,14 @@ export class RunManager {
     sinceSeq?: number,
   ): Promise<void> {
     connection.tabId = tabId;
+    const left = connection.conversationId;
     const conversationId =
       requested !== undefined && requested !== null ? requested : await this.scope.conversationOf(tabId);
     connection.unsubscribe?.();
     connection.unsubscribe = undefined;
     connection.conversationId = conversationId;
+    // The panel moved on from a conversation: a temporary one that no panel shows now goes.
+    if (left && left !== conversationId) this.#checkTemporary();
     if (!conversationId || !(await getConversation(conversationId))) {
       connection.conversationId = null;
       this.journal.direct(null, connection.sink, { type: 'bound', conversationId: null });
@@ -726,7 +732,7 @@ export class RunManager {
   }
 
   async #history(connection: PanelConnection, query?: string): Promise<void> {
-    const items = (await listConversations(query)).map(c => ({
+    const items = inHistory(await listConversations(query)).map(c => ({
       id: c.id,
       title: c.title,
       updatedAt: c.updatedAt,
@@ -837,7 +843,11 @@ export class RunManager {
       if (conversation && !(await this.#takeUp(connection, conversation.id))) return;
     }
     if (!conversation) {
-      conversation = await createConversation({ mode: command.mode, tabs: [command.tabId] });
+      conversation = await createConversation({
+        mode: command.mode,
+        tabs: [command.tabId],
+        ...(command.temporary ? { temporary: true } : {}),
+      });
       // The live pair is written before the conversation's state is published.
       if (command.model) await setLive(conversation.id, { model: command.model, reasoning: command.reasoning });
       await this.#subscribe(connection, command.tabId, conversation.id);
@@ -1118,7 +1128,7 @@ export class RunManager {
     if (!connection) {
       return { text: 'error: the user is not signed in to Command Center, so its tools cannot run.', isError: true };
     }
-    const tool = connection.tools.find(t => t.name === name);
+    const tool = allCommandCenterTools(connection).find(t => t.name === name);
     if (!tool) {
       return {
         text: `error: Command Center has no tool ${quote(name, 80)} for this person. Use one listed under Command Center.`,
@@ -1154,6 +1164,12 @@ export class RunManager {
       const label = `${call.toolName} · ${name}`;
       if (result.isError)
         return { text: `${label} · error\n${wrap(result.text, { site: 'Command Center' })}`, isError: true };
+      // A new memory goes into the brief, so the next message's prompt has it.
+      if (name === 'remember' && tool.via === 'bash-ai') {
+        void refreshKnowledge().catch(error =>
+          console.warn('[command-center] brief not refreshed after remember', error),
+        );
+      }
       return { text: `${label}\n${wrap(result.text, { site: 'Command Center' })}`, isError: false };
     } catch (error) {
       return { text: `error: ${String((error as Error)?.message ?? error)}`, isError: true };
@@ -1275,7 +1291,8 @@ export class RunManager {
     try {
       if (!(await commandCenterStorage.get())) return false;
       const conversation = await getConversation(conversationId);
-      if (!conversation) return true;
+      // A temporary chat is never kept in Command Center (src/extension/temporary.ts).
+      if (!conversation || !savedToCommandCenter(conversation)) return true;
       const transcript = historyTranscript(toDisplay(await activeBranch(conversationId)));
       if (!transcript.length) return true;
       await saveChatToCommandCenter({
@@ -1291,6 +1308,30 @@ export class RunManager {
       console.warn('[history] not saved to Command Center', error);
       return false;
     }
+  }
+
+  /** A panel closed: its temporary chat goes after a short grace, unless a panel shows it again meanwhile. */
+  panelClosed(): void {
+    this.#checkTemporary(CLOSED_PANEL_GRACE_MS);
+  }
+
+  /**
+   * Deletes every temporary chat that no panel shows and no run works in, with its messages, files and run record
+   * (src/extension/temporary.ts). Also run once a little after each worker start, for a panel that crashed.
+   */
+  async sweepTemporary(): Promise<void> {
+    const shown = new Set([...this.connections].flatMap(c => (c.conversationId ? [c.conversationId] : [])));
+    const running = new Set(this.#runs.keys());
+    for (const id of temporaryToDrop(await listConversations(), shown, running)) {
+      await this.#delete(id, false).catch(error => console.warn('[temporary] not deleted', error));
+    }
+  }
+
+  #checkTemporary(delayMs = 0): void {
+    setTimeout(
+      () => void this.sweepTemporary().catch(error => console.warn('[temporary] sweep failed', error)),
+      delayMs,
+    );
   }
 
   /**
@@ -1310,12 +1351,14 @@ export class RunManager {
   async #commandCenterSetup(): Promise<{ agentTools: AgentTool[]; prompt: string }> {
     const connection = await commandCenterStorage.get();
     if (!connection) return { agentTools: [], prompt: '' };
+    const tools = allCommandCenterTools(connection);
     return {
-      agentTools: [
-        ...commandCenterAgentTools(connection.tools),
-        ...mediaAgentTools(connection.extras?.media ?? NO_EXTRAS.media),
-      ],
-      prompt: commandCenterPrompt(connection.tools, { name: connection.user.name, role: connection.user.role }),
+      agentTools: [...commandCenterAgentTools(tools), ...mediaAgentTools(connection.extras?.media ?? NO_EXTRAS.media)],
+      prompt: commandCenterPrompt(
+        tools,
+        { name: connection.user.name, role: connection.user.role },
+        connection.knowledge?.brief,
+      ),
     };
   }
 
@@ -1620,6 +1663,8 @@ export class RunManager {
         if (!controller.signal.aborted) await this.#sendQueued(conversationId);
         // `/compact` that reached the run after its last turn is done now.
         if (loopRef?.compactionPending && !this.#runs.has(conversationId)) await this.#compact(conversationId);
+        // A temporary chat whose panel closed while it ran goes now.
+        this.#checkTemporary();
       }
     })();
     this.#runs.set(conversationId, { runId, controller, done });
