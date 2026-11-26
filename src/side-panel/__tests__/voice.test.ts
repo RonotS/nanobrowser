@@ -157,7 +157,7 @@ describe('which voice', () => {
 describe('the voice agent and the side panel', () => {
   it('says which lookup reads each side view, only for the ones this person has', () => {
     expect(sidePanelLine(['my_tasks', 'meeting_prep', 'list_clients'])).toBe(
-      "Bash AI's side panel (the views on the right of its panel) shows the person My tasks, Meeting prep (their client calls today and tomorrow, each with a brief). You read the same data with command_center_lookup: My tasks = my_tasks; Meeting prep = meeting_prep. When they ask about their tasks, their meetings or what is in their side panel, look it up; never say you can't see it.",
+      "Bash AI's side panel (the views on the right of its panel) shows the person My tasks, Meeting prep (the CSM calendar's client calls today and tomorrow, each with a brief). You read the same data with command_center_lookup: My tasks = my_tasks; Meeting prep = meeting_prep. When they ask about their tasks, their meetings or what is in their side panel, look it up; never say you can't see it.",
     );
     expect(sidePanelLine(['list_clients'])).toBe('');
     const text = voiceInstructions({

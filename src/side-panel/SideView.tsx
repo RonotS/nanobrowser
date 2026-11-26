@@ -275,13 +275,22 @@ function Prep({
 }) {
   const [openKey, setOpenKey] = useState<string | null>(null);
   if (!data.connected) return <p className="px-3 py-4 text-sm text-nb-muted">{t('side.prep.noCalendar')}</p>;
-  const shown = matching(data.calls, query, c => [c.clientName, c.title, c.kind, c.headline]);
+  const shown = matching(data.calls, query, c => [c.clientName, c.title, c.kind, c.headline, ...c.owners]);
+  const from = <p className="px-2 pt-1 text-[11px] text-nb-muted">{t('side.prep.from', { names: data.calendars.join(', ') })}</p>;
   if (!shown.length) {
-    return query ? <Empty filtered /> : <p className="px-3 py-4 text-sm text-nb-muted">{t('side.prep.none')}</p>;
+    return query ? (
+      <Empty filtered />
+    ) : (
+      <>
+        {from}
+        <p className="px-3 py-4 text-sm text-nb-muted">{t('side.prep.none')}</p>
+      </>
+    );
   }
   const sections = prepSections(shown);
   return (
     <>
+      {from}
       {(
         [
           ['today', sections.today],
@@ -363,6 +372,9 @@ function PrepCall({
             {call.inProgress ? <Badge tone="blue">{t('side.prep.now')}</Badge> : <Badge tone="grey">{call.kind}</Badge>}
             <ChevronIcon size={12} className={`text-nb-muted transition-transform ${expanded ? 'rotate-180' : ''}`} />
           </span>
+          {call.owners.length ? (
+            <span className="mt-0.5 block truncate text-[11px] text-nb-muted">{call.owners.join(' + ')}</span>
+          ) : null}
           {call.headline ? (
             <span className={`mt-1 block text-xs text-nb-muted ${expanded ? '' : 'line-clamp-2'}`}>{call.headline}</span>
           ) : (

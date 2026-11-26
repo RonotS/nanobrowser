@@ -73,6 +73,7 @@ export function prepDetails(call: PanelPrepCall): string {
   return lines([
     `Client call: ${call.clientName}, ${call.kind}, ${call.day} at ${clock(call.at)}${call.inProgress ? ' (in progress)' : ''}`,
     `Calendar: ${call.title}`,
+    call.owners.length > 0 && `With: ${call.owners.join(', ')}`,
     call.meetLink && `Meeting link: ${call.meetLink}`,
     `Client in Command Center: ${call.clientUrl}`,
     call.builtAt ? `Brief built: ${new Date(call.builtAt).toLocaleString('en-US')}` : 'No brief built yet for this client.',

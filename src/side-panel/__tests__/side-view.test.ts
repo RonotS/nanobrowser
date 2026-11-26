@@ -68,6 +68,7 @@ describe('Meeting prep', () => {
     inProgress: false,
     kind: 'Check-up',
     title: 'Install America weekly',
+    owners: ['Bashir Kila', 'Zach Kostic'],
     meetLink: 'https://meet.google.com/abc',
     headline: 'Spend is still $0.',
     talkingPoints: ['Confirm the launch date'],
@@ -92,6 +93,7 @@ describe('Meeting prep', () => {
   it("hands the chat which call it is and the whole brief, and shows the brief's bullets as a list", () => {
     const text = prepDetails(call({}));
     expect(text).toMatch(/^Client call: Install America, Check-up, today at /);
+    expect(text).toContain('With: Bashir Kila, Zach Kostic');
     expect(text).toContain('Meeting link: https://meet.google.com/abc');
     expect(text).toContain('Client in Command Center: https://cc.example/clients/c1');
     expect(text).toContain('**Talking points**\n• Confirm the launch date');

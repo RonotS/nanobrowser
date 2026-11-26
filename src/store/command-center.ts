@@ -744,7 +744,7 @@ export async function setViewAs(member: ViewAs | null): Promise<CommandCenterCon
 
 export type PanelView = 'tasks' | 'prep' | 'lists' | 'quality' | 'churn';
 
-/** One client call in Meeting prep, with the client's brief (Command Center's PanelPrepCall). */
+/** One client call in Meeting prep (the CSM Space calendar), with the client's brief (Command Center's PanelPrepCall). */
 export interface PanelPrepCall {
   key: string;
   clientId: string;
@@ -755,6 +755,8 @@ export interface PanelPrepCall {
   inProgress: boolean;
   kind: string;
   title: string;
+  /** The CSMs whose calendars hold the call. */
+  owners: string[];
   meetLink: string | null;
   headline: string | null;
   talkingPoints: string[];
@@ -789,8 +791,8 @@ export interface PanelListLink {
 
 export interface PanelData {
   tasks: { tasks: PanelTask[]; source: 'clickup' | 'mirror' };
-  /** `connected`: whether the person has a Google Calendar connected to Command Center. */
-  prep: { connected: boolean; calls: PanelPrepCall[] };
+  /** The CSM Space calendar's client calls. `calendars`: the CSMs whose calendars are read; `connected`: any are. */
+  prep: { connected: boolean; calendars: string[]; calls: PanelPrepCall[] };
   lists: { yours: PanelListLink[]; spaces: Array<{ id: string; name: string; url: string; lists: PanelListLink[] }> };
   quality: {
     mode: 'off' | 'test' | 'live';

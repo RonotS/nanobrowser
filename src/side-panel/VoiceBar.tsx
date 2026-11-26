@@ -116,7 +116,7 @@ export function voiceInstructions(connection: Pick<CommandCenterConnection, 'use
 export function sidePanelLine(reads: string[]): string {
   const views = [
     ['my_tasks', 'My tasks'],
-    ['meeting_prep', 'Meeting prep (their client calls today and tomorrow, each with a brief)'],
+    ['meeting_prep', "Meeting prep (the CSM calendar's client calls today and tomorrow, each with a brief)"],
     ['list_quality_clients', 'Quality checks'],
     ['list_churn_risks', 'Churn risk'],
   ].filter(([tool]) => reads.includes(tool));
