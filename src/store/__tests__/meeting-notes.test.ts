@@ -1,44 +1,35 @@
 import { describe, expect, it } from 'vitest';
-import { CAPTION_NOISE, parseCaption } from '../../side-panel/meet-notes-page';
-import { applyRows, meetTitle, notesForCommandCenter, notesQuote, notesText } from '../meeting-notes';
+import { addSoundLine, applyFeed, meetTitle, notesForCommandCenter, notesQuote, notesText } from '../meeting-notes';
 import type { NotesSession } from '../meeting-notes';
 
 const at = new Date('2026-11-27T13:10:00Z');
 
-describe("reading Meet's captions", () => {
-  it('a caption block is the speaker, then what they said; Meet’s own words are dropped', () => {
-    expect(parseCaption('Zach Kostic\nso the Install America call moved\nto three')).toEqual({
-      speaker: 'Zach Kostic',
-      text: 'so the Install America call moved to three',
-    });
-    expect(parseCaption('just words')).toEqual({ speaker: '', text: 'just words' });
-    expect(parseCaption('arrow_downward Jump to bottom')).toBeNull();
-    expect(CAPTION_NOISE.test('Live captions are on')).toBe(true);
-  });
-});
-
 describe('the notes transcript', () => {
-  it('a block that grows updates its line; a block Meet drops is done; a new block is a new line', () => {
-    let lines = applyRows([], [{ id: 'k:1', speaker: 'Zach', text: 'so the' }], at);
-    lines = applyRows(lines, [{ id: 'k:1', speaker: 'Zach', text: 'so the call moved' }], at);
-    expect(lines).toEqual([
-      { id: 'k:1', speaker: 'Zach', text: 'so the call moved', at: at.toISOString(), done: false },
-    ]);
-    lines = applyRows(lines, [{ id: 'k:2', speaker: 'Aaron', text: 'got it' }], at);
-    expect(lines.map(l => [l.speaker, l.text, l.done])).toEqual([
-      ['Zach', 'so the call moved', true],
-      ['Aaron', 'got it', false],
+  it('an utterance keeps one line that grows until final; a new utterance is a new line', () => {
+    let lines = applyFeed([], [{ id: '1', speaker: 'Zach', text: 'so the', final: false }], at);
+    lines = applyFeed(lines, [{ id: '1', speaker: 'Zach', text: 'so the call moved', final: true }], at);
+    lines = applyFeed(lines, [{ id: '2', speaker: 'Aaron', text: 'got it', final: false }], at);
+    expect(lines.map(l => [l.id, l.speaker, l.text, l.done])).toEqual([
+      ['f:1', 'Zach', 'so the call moved', true],
+      ['f:2', 'Aaron', 'got it', false],
     ]);
   });
 
-  it('Meet redrawing a block (new element, same words) extends the line instead of repeating it', () => {
-    let lines = applyRows([], [{ id: 'k:1', speaker: 'Zach', text: 'the call moved' }], at);
-    lines = applyRows(lines, [{ id: 'k:9', speaker: 'Zach', text: 'the call moved to three' }], at);
-    expect(lines.map(l => [l.id, l.text])).toEqual([['k:9', 'the call moved to three']]);
+  it("a line from the call's sound has no speaker and goes in time order", () => {
+    const lines = addSoundLine(
+      applyFeed([], [{ id: '1', speaker: 'Zach', text: 'later', final: true }], new Date('2026-11-27T13:20:00Z')),
+      '2026-11-27T13:15:00.000Z',
+      ' earlier words ',
+    );
+    expect(lines.map(l => [l.speaker, l.text])).toEqual([
+      ['', 'earlier words'],
+      ['Zach', 'later'],
+    ]);
+    expect(notesText(lines)).toContain('Meeting: earlier words');
   });
 
   it('the named transcript for a question, and the meeting title from the tab', () => {
-    const lines = applyRows([], [{ id: 'k:1', speaker: 'Zach Kostic', text: 'Bash AI, what is next?' }], at);
+    const lines = applyFeed([], [{ id: '1', speaker: 'Zach Kostic', text: 'Bash AI, what is next?', final: true }], at);
     expect(notesText(lines)).toBe('[7:10 AM] Zach Kostic: Bash AI, what is next?');
     expect(notesQuote({ title: 'Tech sync', startedAt: at.toISOString() }, lines)).toContain('with who said each line');
     expect(meetTitle('Meet - hew-arks-weu', 'https://meet.google.com/hew-arks-weu')).toBe('hew-arks-weu');
@@ -52,7 +43,7 @@ describe('the notes transcript', () => {
       title: 'Tech sync',
       tabId: 5,
       startedAt: at.toISOString(),
-      lines: applyRows([], [{ id: 'k:1', speaker: 'Zach', text: 'Ship it Friday.' }], at),
+      lines: applyFeed([], [{ id: '1', speaker: 'Zach', text: 'Ship it Friday.', final: true }], at),
       notice: 'posted',
       summary: '## Summary\nShip Friday.',
     };
@@ -68,12 +59,12 @@ describe('the notes transcript', () => {
 
   it('a long meeting fits the 1,500 entries Command Center keeps', () => {
     const rows = Array.from({ length: 3000 }, (_, i) => ({
-      id: `k:${i}`,
+      id: String(i),
       speaker: i % 2 ? 'Zach' : 'Aaron',
       text: `line ${i}`,
+      final: true,
     }));
-    let lines: ReturnType<typeof applyRows> = [];
-    for (const row of rows) lines = applyRows(lines, [row], at);
+    const lines = applyFeed([], rows, at);
     const chat = notesForCommandCenter(
       { key: 'k', meetUrl: 'u', title: 't', tabId: 1, startedAt: at.toISOString(), lines, notice: 'posted' },
       at,

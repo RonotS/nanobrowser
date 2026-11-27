@@ -10,12 +10,15 @@ import { DATA_REQUEST } from '@src/ui/protocol';
 import { settingsStorage } from '@src/store/settings';
 import { refreshIfStale } from '@src/store/command-center';
 import { START_SWEEP_DELAY_MS } from './temporary';
+import { listenForNotes } from './meet-notes';
 
 const DARK_DEFAULT_KEY = 'kai.darkDefault';
 
 export const runManager = new RunManager();
 listenForPanels(runManager);
 listenForSelections(runManager);
+// Bash AI's notetaker in a Google Meet tab: the worker keeps the notes and the recording going without the panel.
+listenForNotes();
 // The watchdog alarm only wakes the worker; starting it is what restores an unfinished run.
 // The welcome page and the first shortcut on install. Unattended check builds are installed on every run, so they
 // skip both.

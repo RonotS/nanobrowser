@@ -6,7 +6,8 @@ const held = new Set<string>();
 /** The name asked for each blob URL being saved. */
 const naming = new Map<string, string>();
 
-async function ensureOffscreen(): Promise<void> {
+/** The offscreen document, made when missing. It also holds the notetaker's recordings (src/ui/meeting-recorder.ts). */
+export async function ensureOffscreen(): Promise<void> {
   const url = chrome.runtime.getURL(OFFSCREEN);
   const contexts = await chrome.runtime.getContexts({
     contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT],
@@ -15,8 +16,8 @@ async function ensureOffscreen(): Promise<void> {
   if (contexts.length) return;
   await chrome.offscreen.createDocument({
     url: OFFSCREEN,
-    reasons: [chrome.offscreen.Reason.BLOBS],
-    justification: 'Make blob URLs for files the agent saves',
+    reasons: [chrome.offscreen.Reason.BLOBS, chrome.offscreen.Reason.USER_MEDIA],
+    justification: 'Make blob URLs for files the agent saves, and record the Meet call the person takes notes in',
   });
 }
 

@@ -1,8 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('@src/store/command-center', () => ({ startRecordingUpload: vi.fn(), finishRecordingUpload: vi.fn() }));
-
-import { GRAIN, PIECE, ResumableUpload, confirmedUpTo, contentRange, recordingMime, sendable } from '../recorder';
+import { GRAIN, PIECE, ResumableUpload, confirmedUpTo, contentRange, recordingMime, sendable } from '../drive-upload';
 
 /** A fake Drive resumable upload: keeps what it is sent, answers 308 with Range, and 200 with the file at the end. */
 function fakeDrive(options: { failFirst?: number; keepAtMost?: number } = {}) {
@@ -98,6 +96,24 @@ describe('the resumable upload', () => {
     expect(drive.puts[0]).toBe('bytes 0-99/100');
     expect(drive.puts[1]).toBe('bytes */100');
     vi.useRealTimers();
+  });
+
+  it('uses the browser\'s fetch without borrowing it (Chrome: "Illegal invocation")', async () => {
+    // Chrome's fetch throws when called on any object but the window, as `this.#fetch(...)` does.
+    const drive = fakeDrive();
+    const strictFetch = function (this: unknown, url: string, init: RequestInit) {
+      if (this !== undefined && this !== globalThis)
+        throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation");
+      return drive.fetchImpl(url, init);
+    };
+    vi.stubGlobal('fetch', strictFetch);
+    try {
+      const upload = new ResumableUpload('https://upload/session');
+      upload.add(new Blob([new Uint8Array(100)]));
+      await expect(upload.finish()).resolves.toBe('file-1');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('a refusal (4xx) ends the upload with the reason', async () => {

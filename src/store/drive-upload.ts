@@ -1,12 +1,7 @@
-// The notetaker's recording (Aaron 2026-11-27: video + audio + transcript, saved to Command Center + Google Drive).
-// It records the person's Google Meet tab (what everyone else says and shows) and their own microphone, mixed, as WebM,
-// and sends it to Google Drive in pieces while the call goes on (a Drive resumable upload Command Center opens), so a
-// long meeting never piles up in the browser. It lives in the side panel, like the notes: closing the panel ends it.
-//
-// The tab: chrome.tabCapture first (no picker). Chrome allows that only once the person has invoked the extension on
-// the tab, and its docs don't say whether a side-panel click counts, so when it refuses, Chrome's own "share a tab"
-// picker is the fallback (the person picks the Meet tab, with its audio).
-import { finishRecordingUpload, startRecordingUpload } from '@src/store/command-center';
+// Sending a meeting recording to Google Drive while the call goes on (Aaron 2026-11-27: the notetaker's video + audio
+// goes to Command Center's Drive folder). Command Center opens a Drive resumable upload and hands over its address;
+// this sends the video to it in pieces, in order, so a long meeting never piles up in the browser. No Chrome APIs:
+// the offscreen document and the side panel both use it.
 
 /** Drive takes a resumable upload's pieces in multiples of 256 KiB (all but the last). */
 export const GRAIN = 256 * 1024;
@@ -44,13 +39,20 @@ export class ResumableUpload {
   #error: Error | null = null;
   fileId: string | null = null;
 
-  constructor(url: string, fetchImpl: typeof fetch = fetch) {
+  // The default calls the browser's fetch on its own: kept as a field and called as `this.#fetch(...)`, Chrome throws
+  // "Illegal invocation" (live Nov 27: the first recording was lost to it).
+  constructor(url: string, fetchImpl: typeof fetch = (input, init) => fetch(input, init)) {
     this.#url = url;
     this.#fetch = fetchImpl;
   }
 
   get sentBytes(): number {
     return this.#sent;
+  }
+
+  /** Everything recorded so far: sent, and waiting for its piece. */
+  get recordedBytes(): number {
+    return this.#sent + this.#pending.size;
   }
 
   get error(): Error | null {
@@ -153,129 +155,4 @@ export function recordingMime(
     if (isTypeSupported(type)) return type;
   }
   return 'video/webm';
-}
-
-export interface ActiveRecording {
-  /** How the tab was captured: straight (tab) or through Chrome's share picker. */
-  mode: 'tab' | 'picker';
-  withMic: boolean;
-  startedAt: number;
-  sentBytes(): number;
-  /** Calls back once when the capture ends on its own (the tab closed, or sharing was stopped). */
-  onEnded(callback: () => void): void;
-  /** Stops recording, sends the rest, and gives the saved file's Drive link. */
-  stop(): Promise<{ url: string; name: string }>;
-}
-
-let current: ActiveRecording | null = null;
-
-/** The recording going on in this panel, if any. */
-export function activeRecording(): ActiveRecording | null {
-  return current;
-}
-
-/**
- * Starts recording a Meet tab. Call it straight from the click (tab capture and the picker both need it), before
- * anything else awaits.
- */
-export async function startRecording(tabId: number, title: string): Promise<ActiveRecording> {
-  if (current) throw new Error('A recording is already going on.');
-  let tab: MediaStream;
-  let mode: ActiveRecording['mode'];
-  try {
-    const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
-    tab = await navigator.mediaDevices.getUserMedia({
-      audio: { mandatory: { chromeMediaSource: 'tab', chromeMediaSourceId: streamId } },
-      video: {
-        mandatory: {
-          chromeMediaSource: 'tab',
-          chromeMediaSourceId: streamId,
-          maxWidth: 1280,
-          maxHeight: 720,
-          maxFrameRate: 15,
-        },
-      },
-    } as unknown as MediaStreamConstraints);
-    mode = 'tab';
-  } catch {
-    tab = await navigator.mediaDevices.getDisplayMedia({
-      video: { displaySurface: 'browser', frameRate: 15 },
-      audio: true,
-      selfBrowserSurface: 'exclude',
-      surfaceSwitching: 'exclude',
-      systemAudio: 'exclude',
-    } as unknown as DisplayMediaStreamOptions);
-    mode = 'picker';
-  }
-  const mic = await navigator.mediaDevices
-    .getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
-    .catch(() => null);
-
-  // One audio track: the meeting and the person's own voice.
-  const audio = new AudioContext();
-  const mix = audio.createMediaStreamDestination();
-  if (tab.getAudioTracks().length) {
-    const meeting = audio.createMediaStreamSource(new MediaStream(tab.getAudioTracks()));
-    meeting.connect(mix);
-    // Tab capture silences the tab for the person; play the meeting back to them.
-    if (mode === 'tab') meeting.connect(audio.destination);
-  }
-  if (mic) audio.createMediaStreamSource(mic).connect(mix);
-
-  const stopTracks = () => {
-    for (const track of [...tab.getTracks(), ...(mic?.getTracks() ?? [])]) track.stop();
-    void audio.close();
-  };
-
-  const mimeType = recordingMime();
-  let upload: ResumableUpload;
-  try {
-    const session = await startRecordingUpload({ title, startedAt: new Date().toISOString(), mimeType });
-    upload = new ResumableUpload(session.uploadUrl);
-  } catch (error) {
-    stopTracks();
-    throw error;
-  }
-  const recorder = new MediaRecorder(new MediaStream([...tab.getVideoTracks(), ...mix.stream.getAudioTracks()]), {
-    mimeType,
-    videoBitsPerSecond: 1_000_000,
-    audioBitsPerSecond: 64_000,
-  });
-  recorder.ondataavailable = event => {
-    if (event.data.size) upload.add(event.data);
-  };
-  recorder.start(4000);
-
-  const ended: Array<() => void> = [];
-  tab.getVideoTracks()[0]?.addEventListener('ended', () => {
-    for (const callback of ended.splice(0)) callback();
-  });
-  let stopping: Promise<{ url: string; name: string }> | null = null;
-  const recording: ActiveRecording = {
-    mode,
-    withMic: Boolean(mic),
-    startedAt: Date.now(),
-    sentBytes: () => upload.sentBytes,
-    onEnded: callback => {
-      ended.push(callback);
-    },
-    stop() {
-      stopping ??= new Promise<void>(resolve => {
-        if (recorder.state === 'inactive') return resolve();
-        recorder.onstop = () => resolve();
-        recorder.stop();
-      })
-        .then(async () => {
-          stopTracks();
-          const fileId = await upload.finish();
-          return finishRecordingUpload(fileId);
-        })
-        .finally(() => {
-          if (current === recording) current = null;
-        });
-      return stopping;
-    },
-  };
-  current = recording;
-  return recording;
 }

@@ -20,6 +20,16 @@ Bash AI signs in with your Command Center account and sends everything through C
 - **Dictation and media.** Voice recordings for dictation, and requests to make an image or a video, go through Command Center to OpenAI or xAI. Recordings are not kept.
 - **The company brief.** Bash AI reads a brief written for you from Command Center (systems, your role and ClickUp list, SOPs, the team's rules and memories) and puts it in the model's instructions.
 
+## The meeting notetaker
+
+When you press **Take notes only** in a Google Meet call (the Meeting view), Bash AI:
+
+- **Reads Meet's own captions** for that call, which Google already makes for every Meet call, with each speaker's name. Bash AI asks for them the way Meet's CC button does; Meet's captions box stays off. On Meet pages, a small script notes Meet's caption channel when the page loads, but reads nothing until you press Take notes.
+- **Records the Meet tab** (video, the call's sound, and your microphone if you allowed it) and sends it in pieces straight to Google Drive, into Command Center's "Bash AI Meeting Recordings" folder. Command Center shares the finished file with you only.
+- **Transcribes the call's sound** through Command Center's transcription model, in 15-second clips, only while Meet's captions can't be read. The clips are not kept.
+- **Posts a notice in the Meet chat**, from your account, that the call is being noted and recorded.
+- **Saves the notes** (the transcript, an AI summary written by Claude through Command Center, and the recording's link) in Command Center as a Bash AI chat, which Bash AI's search reads.
+
 ## The voice agent
 
 For a live voice conversation, Command Center gives the panel a secret that works for one minute. The panel then connects straight to the provider (xAI's Grok, or OpenAI), and your voice and its answers stream between your browser and the provider. Command Center does not receive the audio.

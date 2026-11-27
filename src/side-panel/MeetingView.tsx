@@ -29,10 +29,9 @@ import { t } from '@src/ui/i18n';
 import type { MessageKey } from '@src/ui/i18n';
 import { SpinnerIcon, VideoIcon } from '@src/ui/icons';
 import type { SideAsk } from './side-view';
-import { NotesView, startNotes } from './NotesView';
-import { startRecording } from './recorder';
+import { NotesView } from './NotesView';
+import { recordWithPicker } from './picker-recording';
 import { meetTitle, notesStorage } from '@src/store/meeting-notes';
-import type { ChatModel } from '@src/llm/providers';
 
 /**
  * While the call is on, the transcript is read often enough to stream (Aaron 2026-11-27: "when it is
@@ -76,7 +75,7 @@ function useActiveMeet(): { id: number; url: string; title: string } | null {
 /** When the bot's call ended because it couldn't get in (declined, nobody admitted, Meet refused). */
 const NOT_LET_IN = /declined|nobody admitted|refused|could not join|can't join/i;
 
-export function MeetingView({ onAsk, model }: { onAsk: (ask: SideAsk) => void; model: ChatModel | null }) {
+export function MeetingView({ onAsk }: { onAsk: (ask: SideAsk) => void }) {
   const [meeting, setMeeting] = useState<FollowedMeeting | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [status, setStatus] = useState<MeetingStatus>('calling');
@@ -99,6 +98,7 @@ export function MeetingView({ onAsk, model }: { onAsk: (ask: SideAsk) => void; m
   const [notesError, setNotesError] = useState<string | null>(null);
   useEffect(() => {
     const read = () => void notesStorage.get().then(n => setNotesOn(Boolean(n)));
+    // Kept by the worker, so a notes session goes on after the panel closes; it shows again on reopening.
     read();
     return notesStorage.subscribe(read);
   }, []);
@@ -108,15 +108,28 @@ export function MeetingView({ onAsk, model }: { onAsk: (ask: SideAsk) => void; m
       return;
     }
     setNotesError(null);
-    // The recording starts first, straight from the click: tab capture and Chrome's share picker both need it.
-    const recording = startRecording(activeTab.id, activeTab.title || activeTab.url).catch((e: unknown) =>
-      e instanceof Error ? e : new Error(String(e)),
-    );
-    try {
-      await startNotes(activeTab, recording);
-    } catch (e) {
-      setNotesError((e as Error).message);
+    // The worker keeps the notes and records the tab; when Chrome won't hand it the tab, the panel records it through
+    // Chrome's share picker, while this click still counts.
+    const answer = (await chrome.runtime
+      .sendMessage({ type: 'kai-notes', op: 'start', tab: activeTab })
+      .catch((e: Error) => ({ ok: false, error: e.message }))) as {
+      ok: boolean;
+      key?: string;
+      capture?: 'tab' | 'picker';
+      error?: string;
+    };
+    if (!answer?.ok || !answer.key) {
+      setNotesError(answer?.error ?? t('notes.startFailed'));
+      return;
     }
+    if (answer.capture !== 'picker') return;
+    const result = await recordWithPicker(answer.key, meetTitle(activeTab.title, activeTab.url)).then(
+      r => ({ withMic: r.withMic }),
+      (e: Error) => ({ error: e.name === 'NotAllowedError' ? t('notes.rec.pickerClosed') : e.message }),
+    );
+    await chrome.runtime
+      .sendMessage({ type: 'kai-notes', op: 'recording', key: answer.key, ...result })
+      .catch(() => {});
   };
   const listRef = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
@@ -251,7 +264,7 @@ export function MeetingView({ onAsk, model }: { onAsk: (ask: SideAsk) => void; m
   };
 
   if (!loaded) return <p className="px-3 py-4 text-sm text-nb-muted">{t('side.loading')}</p>;
-  if (notesOn) return <NotesView model={model} onAsk={onAsk} />;
+  if (notesOn) return <NotesView onAsk={onAsk} />;
 
   return (
     <section className="flex min-h-0 flex-1 flex-col">
