@@ -4,9 +4,11 @@ import {
   PANEL_LINES,
   QUOTE_LIMIT,
   leaveMeeting,
+  lineId,
   looksLikeDialIn,
   meetCallUrl,
   mergeLines,
+  pendingLive,
   readMeeting,
   transcriptQuote,
 } from '../meeting-bot';
@@ -102,5 +104,19 @@ describe('the transcript', () => {
     expect(quote).toContain('(earlier lines left out)');
     expect(quote).toContain('sentence number 1999');
     expect(quote.length).toBeLessThan(QUOTE_LIMIT + 500);
+  });
+});
+
+describe('words in progress', () => {
+  it('a line finishing words in progress keeps their id; finished ones drop out of the live list', () => {
+    expect(lineId({ n: 7, key: 'm:item-1' })).toBe('m:item-1');
+    expect(lineId({ n: 7 })).toBe('n7');
+    const lines = [{ n: 1, at: '', who: 'meeting' as const, text: 'Bash AI, hi', key: 'm:a' }];
+    const live = [
+      { key: 'm:a', who: 'meeting' as const, text: 'Bash AI', at: '' },
+      { key: 'b2', who: 'bash-ai' as const, text: 'Hi Aar', at: '' },
+    ];
+    expect(pendingLive(live, lines).map(l => l.key)).toEqual(['b2']);
+    expect(pendingLive(undefined, lines)).toEqual([]);
   });
 });

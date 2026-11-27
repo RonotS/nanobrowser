@@ -624,7 +624,7 @@
   "meeting.admit": "正在 Meet 的等候室等待：请让电话来电者进入。",
   "meeting.left": "已离开通话：{reason}",
   "meeting.invited": "受邀：{names}",
-  "meeting.phoneNote": "通过电话它只听到混在一起的声音，所以记录无法标明是谁在说话。",
+  "meeting.phoneNote": "它把所有人的声音当作一个声音来听，所以记录还无法标明是谁在说话。",
   "meeting.empty": "还没有人说话。",
   "meeting.askPlaceholder": "询问关于此会议的问题…",
   "meeting.ask": "提问",

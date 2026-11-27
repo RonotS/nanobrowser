@@ -624,7 +624,7 @@
   "meeting.admit": "Waiting in Meet's waiting room: admit the phone caller.",
   "meeting.left": "Left the call: {reason}",
   "meeting.invited": "Invited: {names}",
-  "meeting.phoneNote": "By phone it hears one mixed voice, so the transcript can't say who spoke.",
+  "meeting.phoneNote": "It hears everyone as one voice, so the transcript can't say who spoke yet.",
   "meeting.empty": "Nothing said yet.",
   "meeting.askPlaceholder": "Ask about this meeting…",
   "meeting.ask": "Ask",

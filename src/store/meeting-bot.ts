@@ -11,6 +11,16 @@ export interface MeetingLine {
   at: string;
   who: MeetingLineWho;
   text: string;
+  /** The words-in-progress this line finishes (LiveMeetingLine.key), so the reveal carries on smoothly. */
+  key?: string;
+}
+
+/** Words still being said (someone mid-sentence, Bash AI mid-answer): replaced by a line under the same key. */
+export interface LiveMeetingLine {
+  key: string;
+  who: MeetingLineWho;
+  text: string;
+  at: string;
 }
 
 export type MeetingStatus = 'calling' | 'connected' | 'lobby' | 'in-call' | 'ended';
@@ -23,6 +33,8 @@ export interface MeetingView {
   title: string | null;
   invited: string[];
   lines: MeetingLine[];
+  /** Words in progress (the bot sends them since Nov 27 2026; older bots leave this out). */
+  live?: LiveMeetingLine[];
   last: number;
 }
 
@@ -126,4 +138,15 @@ export function transcriptQuote(meeting: Pick<FollowedMeeting, 'title' | 'invite
   let text = body.join('\n');
   if (text.length > QUOTE_LIMIT) text = `… (earlier lines left out)\n${text.slice(text.length - QUOTE_LIMIT)}`;
   return `${head}\n\n${text || '(nothing said yet)'}`;
+}
+
+/** The id a line is revealed under: its live key when it finished words in progress, else its number. */
+export function lineId(line: Pick<MeetingLine, 'n' | 'key'>): string {
+  return line.key ?? `n${line.n}`;
+}
+
+/** Words in progress not yet replaced by their finished line. */
+export function pendingLive(live: LiveMeetingLine[] | undefined, lines: MeetingLine[]): LiveMeetingLine[] {
+  const done = new Set(lines.map(l => l.key).filter(Boolean));
+  return (live ?? []).filter(l => !done.has(l.key));
 }

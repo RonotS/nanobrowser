@@ -4,11 +4,14 @@
 // Meet's "Join by phone" line), and the bot answers in the meeting only when someone says "Bash AI". Internal meetings
 // only. The transcript is read straight from the bot with the call's pass, every two seconds while the call is on.
 import { useEffect, useRef, useState } from 'react';
+import { useSmoothText } from './SmoothText';
 import { CommandCenterError, MeetingNeedsDialInError, startMeetingBot } from '@src/store/command-center';
 import {
   MeetingGoneError,
   leaveMeeting,
   lineClock,
+  lineId,
+  pendingLive,
   looksLikeDialIn,
   meetCallUrl,
   meetingStorage,
@@ -16,13 +19,20 @@ import {
   readMeeting,
   transcriptQuote,
 } from '@src/store/meeting-bot';
-import type { FollowedMeeting, MeetingLine, MeetingStatus } from '@src/store/meeting-bot';
+import type { FollowedMeeting, LiveMeetingLine, MeetingLine, MeetingStatus } from '@src/store/meeting-bot';
 import { t } from '@src/ui/i18n';
 import type { MessageKey } from '@src/ui/i18n';
 import { SpinnerIcon } from '@src/ui/icons';
 import type { SideAsk } from './side-view';
 
-const POLL_MS = 2000;
+/**
+ * While the call is on, the transcript is read often enough to stream (Aaron 2026-11-27: "when it is
+ * streaming, make sure it is smooth"): new words show in under a second and are revealed at an even
+ * pace, like the chat's answers.
+ */
+const POLL_MS = 700;
+/** Only the newest lines animate (each animated line redraws every frame). */
+const ANIMATED_LINES = 6;
 
 /** The Meet call open in this window's active tab, if any. */
 function useActiveMeetUrl(): string | null {
@@ -56,6 +66,10 @@ export function MeetingView({ onAsk }: { onAsk: (ask: SideAsk) => void }) {
   const [status, setStatus] = useState<MeetingStatus>('calling');
   const [endedReason, setEndedReason] = useState<string | null>(null);
   const [lines, setLines] = useState<MeetingLine[]>([]);
+  const [live, setLive] = useState<LiveMeetingLine[]>([]);
+  /** Lines that arrived while this view was open: they reveal smoothly; the ones before show at once. */
+  const fresh = useRef(new Set<string>());
+  const firstRead = useRef(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<'starting' | 'removing' | null>(null);
   const [needDialIn, setNeedDialIn] = useState(false);
@@ -81,6 +95,9 @@ export function MeetingView({ onAsk }: { onAsk: (ask: SideAsk) => void }) {
   // A new meeting starts a new transcript.
   useEffect(() => {
     setLines([]);
+    setLive([]);
+    fresh.current = new Set();
+    firstRead.current = true;
     setStatus('calling');
     setEndedReason(null);
   }, [meeting?.sessionId]);
@@ -95,7 +112,11 @@ export function MeetingView({ onAsk }: { onAsk: (ask: SideAsk) => void }) {
         const view = await readMeeting(meeting, last);
         if (!live) return;
         last = view.last;
+        if (!firstRead.current) for (const line of view.lines) fresh.current.add(lineId(line));
+        for (const piece of view.live ?? []) fresh.current.add(piece.key);
+        firstRead.current = false;
         setLines(current => mergeLines(current, view.lines));
+        setLive(view.live ?? []);
         setStatus(view.status);
         setEndedReason(view.endedReason);
         setError(null);
@@ -115,10 +136,18 @@ export function MeetingView({ onAsk }: { onAsk: (ask: SideAsk) => void }) {
     };
   }, [meeting, status === 'ended']); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const hasTranscript = lines.length > 0 || live.length > 0;
+  // Stay at the bottom while words stream in (they grow a line at a time), unless the person scrolled up.
   useEffect(() => {
     const list = listRef.current;
-    if (list && atBottom.current) list.scrollTop = list.scrollHeight;
-  }, [lines]);
+    const content = list?.firstElementChild;
+    if (!list || !content) return;
+    const follow = new ResizeObserver(() => {
+      if (atBottom.current) list.scrollTop = list.scrollHeight;
+    });
+    follow.observe(content);
+    return () => follow.disconnect();
+  }, [meeting?.sessionId, hasTranscript]);
 
   const send = async () => {
     setBusy('starting');
@@ -246,18 +275,27 @@ export function MeetingView({ onAsk }: { onAsk: (ask: SideAsk) => void }) {
             }}
             className="min-h-0 flex-1 overflow-y-auto px-3 py-2"
             aria-live="polite">
-            {lines.length ? (
+            {lines.length || live.length ? (
               <ul className="flex flex-col gap-1.5">
-                {lines.map(line => (
-                  <li key={line.n} className={line.who === 'note' ? 'text-[11px] italic text-nb-muted' : 'text-sm'}>
-                    <span className="mr-1.5 text-[11px] text-nb-muted">{lineClock(line.at)}</span>
-                    {line.who === 'note' ? null : (
-                      <span className={`mr-1 font-medium ${line.who === 'bash-ai' ? 'text-nb-accent' : ''}`}>
-                        {line.who === 'bash-ai' ? 'Bash AI' : t('meeting.who.meeting')}:
-                      </span>
-                    )}
-                    {line.text}
-                  </li>
+                {lines.map((line, i) => (
+                  <TranscriptLine
+                    key={lineId(line)}
+                    id={lineId(line)}
+                    who={line.who}
+                    at={line.at}
+                    text={line.text}
+                    animate={fresh.current.has(lineId(line)) && i >= lines.length - ANIMATED_LINES}
+                  />
+                ))}
+                {pendingLive(live, lines).map(piece => (
+                  <TranscriptLine
+                    key={piece.key}
+                    id={piece.key}
+                    who={piece.who}
+                    at={piece.at}
+                    text={piece.text}
+                    animate
+                  />
                 ))}
               </ul>
             ) : (
@@ -306,6 +344,37 @@ export function MeetingView({ onAsk }: { onAsk: (ask: SideAsk) => void }) {
       )}
     </section>
   );
+}
+
+/** One line of the transcript. A new one reveals at an even pace (useSmoothText), carrying on from its words in progress. */
+function TranscriptLine({
+  id,
+  who,
+  at,
+  text,
+  animate,
+}: {
+  id: string;
+  who: MeetingLine['who'];
+  at: string;
+  text: string;
+  animate: boolean;
+}) {
+  return (
+    <li className={who === 'note' ? 'text-[11px] italic text-nb-muted' : 'text-sm'}>
+      <span className="mr-1.5 text-[11px] text-nb-muted">{lineClock(at)}</span>
+      {who === 'note' ? null : (
+        <span className={`mr-1 font-medium ${who === 'bash-ai' ? 'text-nb-accent' : ''}`}>
+          {who === 'bash-ai' ? 'Bash AI' : t('meeting.who.meeting')}:
+        </span>
+      )}
+      {animate ? <SmoothSpan id={id} text={text} /> : text}
+    </li>
+  );
+}
+
+function SmoothSpan({ id, text }: { id: string; text: string }) {
+  return <>{useSmoothText(`meeting:${id}`, text, true)}</>;
 }
 
 function StatusBadge({ status }: { status: MeetingStatus }) {
