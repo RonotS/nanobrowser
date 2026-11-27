@@ -655,5 +655,12 @@
   "notes.saved": "已连同摘要保存到 Command Center（Assistant → Bash AI 聊天）。",
   "notes.saveFailed": "无法保存笔记：{error}",
   "notes.noMeet": "请先在此窗口打开你的 Google Meet 通话。",
-  "notes.tabGone": "Meet 标签页已关闭，笔记已停止。"
+  "notes.tabGone": "Meet 标签页已关闭，笔记已停止。",
+  "notes.rec.starting": "正在开始录制…",
+  "notes.rec.on": "正在将视频和音频录制到 Google Drive · 已发送 {size}。请保持此面板打开。",
+  "notes.rec.noMic": "（未包含你的麦克风：请在 Bash AI 设置中允许。）",
+  "notes.rec.saving": "正在完成录制上传…",
+  "notes.rec.saved": "录制已保存到 Google Drive。",
+  "notes.rec.open": "打开",
+  "notes.rec.failed": "未录制：{error}"
 }

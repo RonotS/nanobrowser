@@ -21,6 +21,8 @@ import type { ChatModel } from '@src/llm/providers';
 import { t } from '@src/ui/i18n';
 import { SpinnerIcon } from '@src/ui/icons';
 import { postMeetChat, startMeetNotes, stopMeetNotes } from './meet-notes-page';
+import { activeRecording } from './recorder';
+import type { ActiveRecording } from './recorder';
 import type { CaptionScan } from './meet-notes-page';
 import { useSmoothText } from './SmoothText';
 import type { SideAsk } from './side-view';
@@ -29,8 +31,14 @@ const ANIMATED_LINES = 6;
 /** Out of the call this long (after being in it): the notes stop and save themselves. */
 const LEFT_CALL_MS = 20_000;
 
-/** Starts notes in a Meet tab: the caption reader, then the consent notice in the Meet chat. */
-export async function startNotes(tab: { id: number; url: string; title: string }): Promise<void> {
+/**
+ * Starts notes in a Meet tab: the caption reader, then the consent notice in the Meet chat. `recording` is the
+ * recording started from the same click (recorder.ts), or why it couldn't start.
+ */
+export async function startNotes(
+  tab: { id: number; url: string; title: string },
+  recording: Promise<ActiveRecording | Error>,
+): Promise<void> {
   const key = `n${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
   const session: NotesSession = {
     key,
@@ -42,6 +50,19 @@ export async function startNotes(tab: { id: number; url: string; title: string }
     notice: 'posting',
   };
   await notesStorage.set(session);
+  void recording.then(rec =>
+    notesStorage.set(current =>
+      current?.key === key
+        ? {
+            ...current,
+            recording:
+              rec instanceof Error
+                ? { state: 'failed', error: rec.message }
+                : { state: 'recording', mode: rec.mode, withMic: rec.withMic },
+          }
+        : current,
+    ),
+  );
   await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: startMeetNotes, args: [key] });
   const [posted] = await chrome.scripting
     .executeScript({ target: { tabId: tab.id }, func: postMeetChat, args: [CONSENT_NOTICE] })
@@ -135,6 +156,39 @@ export function NotesView({ model, onAsk }: { model: ChatModel | null; onAsk: (a
     return () => follow.disconnect();
   }, [session?.key]);
 
+  /** Ends the recording and sends the rest to Drive; the notes keep its link. Safe to call twice. */
+  async function finishRecording(): Promise<NotesSession['recording']> {
+    const rec = activeRecording();
+    const now = await notesStorage.get();
+    if (!rec) return now?.recording;
+    await notesStorage.set(c => (c && c.recording ? { ...c, recording: { ...c.recording, state: 'saving' } } : c));
+    try {
+      const saved = await rec.stop();
+      const recording = { ...(now?.recording ?? {}), state: 'saved' as const, url: saved.url };
+      await notesStorage.set(c => (c ? { ...c, recording } : c));
+      return recording;
+    } catch (e) {
+      const recording = { ...(now?.recording ?? {}), state: 'failed' as const, error: (e as Error).message };
+      await notesStorage.set(c => (c ? { ...c, recording } : c));
+      return recording;
+    }
+  }
+
+  // Sharing stopped or the tab closed: the recording ends and is saved; the notes go on (or stop with the tab).
+  useEffect(() => {
+    const rec = activeRecording();
+    if (!rec || !session || session.savedAt) return;
+    rec.onEnded(() => void finishRecording());
+  }, [session?.key, session?.recording?.state]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // How much of the recording has reached Drive, every 2 s.
+  const [sent, setSent] = useState(0);
+  useEffect(() => {
+    if (session?.recording?.state !== 'recording') return;
+    const timer = setInterval(() => setSent(activeRecording()?.sentBytes() ?? 0), 2000);
+    return () => clearInterval(timer);
+  }, [session?.recording?.state]);
+
   async function stopAndSave(): Promise<void> {
     const current = await notesStorage.get();
     if (!current || current.savedAt || busy) return;
@@ -142,7 +196,8 @@ export function NotesView({ model, onAsk }: { model: ChatModel | null; onAsk: (a
     setError(null);
     try {
       await chrome.scripting.executeScript({ target: { tabId: current.tabId }, func: stopMeetNotes }).catch(() => {});
-      const finished = { ...current, lines: lines.current };
+      const recording = await finishRecording();
+      const finished = { ...current, lines: lines.current, recording };
       let summary: string | undefined;
       if (model && finished.lines.length) {
         const result = await generateText({
@@ -195,6 +250,7 @@ export function NotesView({ model, onAsk }: { model: ChatModel | null; onAsk: (a
           <p className="text-amber-500">{t('notes.notice.failed', { notice: CONSENT_NOTICE })}</p>
         ) : null}
         {!captionsOn && !session.savedAt ? <p className="text-amber-500">{t('notes.captionsOff')}</p> : null}
+        <RecordingLine recording={session.recording} sent={sent} />
         {error ? <p className="text-red-500">{error}</p> : null}
         {session.savedAt ? <p>{t('notes.saved')}</p> : null}
       </div>
@@ -270,6 +326,29 @@ export function NotesView({ model, onAsk }: { model: ChatModel | null; onAsk: (a
       </div>
     </section>
   );
+}
+
+function RecordingLine({ recording, sent }: { recording: NotesSession['recording']; sent: number }) {
+  if (!recording) return <p>{t('notes.rec.starting')}</p>;
+  if (recording.state === 'recording') {
+    return (
+      <p className="text-red-500">
+        ● {t('notes.rec.on', { size: `${(sent / 1_048_576).toFixed(1)} MB` })}
+        {recording.withMic ? '' : ` ${t('notes.rec.noMic')}`}
+      </p>
+    );
+  }
+  if (recording.state === 'saving') return <p>{t('notes.rec.saving')}</p>;
+  if (recording.state === 'saved' && recording.url)
+    return (
+      <p>
+        {t('notes.rec.saved')}{' '}
+        <a href={recording.url} target="_blank" rel="noreferrer" className="text-nb-accent underline">
+          {t('notes.rec.open')}
+        </a>
+      </p>
+    );
+  return <p className="text-amber-500">{t('notes.rec.failed', { error: recording.error ?? '' })}</p>;
 }
 
 function Smooth({ id, text }: { id: string; text: string }) {

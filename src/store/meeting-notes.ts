@@ -26,6 +26,17 @@ export interface NotesSession {
   notice: 'posting' | 'posted' | 'failed';
   savedAt?: string;
   summary?: string;
+  /** The video + audio recording to Google Drive (step 2). */
+  recording?: NotesRecording;
+}
+
+export interface NotesRecording {
+  state: 'recording' | 'saving' | 'saved' | 'failed';
+  /** How the tab was captured: straight, or through Chrome's share picker. */
+  mode?: 'tab' | 'picker';
+  withMic?: boolean;
+  url?: string;
+  error?: string;
 }
 
 export const notesStorage = createStorage<NotesSession | null>('kai.meetingNotes', null, { liveUpdate: true });
@@ -134,6 +145,13 @@ export function notesForCommandCenter(session: NotesSession, endedAt: Date): Cha
       at: session.startedAt,
     },
   ];
+  if (session.recording?.url) {
+    transcript.push({
+      kind: 'notice',
+      text: `Recording (video + audio) in Google Drive: ${session.recording.url}`,
+      at: session.startedAt,
+    });
+  }
   if (session.summary) transcript.push({ kind: 'assistant', text: session.summary, at: endedAt.toISOString() });
   // Command Center keeps 1,500 entries a conversation: a long meeting's lines go in groups.
   const perEntry = Math.max(1, Math.ceil(session.lines.length / 1400));

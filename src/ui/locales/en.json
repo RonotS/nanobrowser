@@ -655,5 +655,12 @@
   "notes.saved": "Saved to Command Center (Assistant → Bash AI chats), with a summary.",
   "notes.saveFailed": "Couldn't save the notes: {error}",
   "notes.noMeet": "Open your Google Meet call in this window first.",
-  "notes.tabGone": "The Meet tab is gone, so notes stopped."
+  "notes.tabGone": "The Meet tab is gone, so notes stopped.",
+  "notes.rec.starting": "Starting the recording…",
+  "notes.rec.on": "Recording video + audio to Google Drive · {size} sent. Keep this panel open.",
+  "notes.rec.noMic": "(Your microphone isn't included: allow it in Bash AI's settings.)",
+  "notes.rec.saving": "Finishing the recording upload…",
+  "notes.rec.saved": "Recording saved to Google Drive.",
+  "notes.rec.open": "Open it",
+  "notes.rec.failed": "Not recorded: {error}"
 }

@@ -83,3 +83,26 @@ describe('the notes transcript', () => {
     expect(JSON.stringify(chat.transcript)).toContain('line 0');
   });
 });
+
+describe('the saved notes with a recording', () => {
+  it('carry the Drive link', () => {
+    const chat = notesForCommandCenter(
+      {
+        key: 'k',
+        meetUrl: 'https://meet.google.com/x',
+        title: 't',
+        tabId: 1,
+        startedAt: at.toISOString(),
+        lines: [],
+        notice: 'posted',
+        recording: { state: 'saved', url: 'https://drive.google.com/file/d/abc/view' },
+      },
+      at,
+    );
+    expect(chat.transcript[1]).toEqual({
+      kind: 'notice',
+      text: 'Recording (video + audio) in Google Drive: https://drive.google.com/file/d/abc/view',
+      at: at.toISOString(),
+    });
+  });
+});

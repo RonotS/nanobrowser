@@ -898,3 +898,38 @@ export async function startMeetingBot(input: { meetUrl?: string; dialIn?: string
   }
   return ((await response.json()) as { data: MeetingBotStart }).data;
 }
+
+/**
+ * The notetaker's recording: Command Center opens a Google Drive resumable upload (its "Bash AI Meeting Recordings"
+ * folder) and answers the session address the video is sent to, in pieces, straight to Google.
+ */
+export async function startRecordingUpload(input: {
+  title: string;
+  startedAt: string;
+  mimeType: string;
+}): Promise<{ uploadUrl: string; name: string }> {
+  const connection = await freshConnection();
+  const response = await withCommandCenterToken(token =>
+    ccFetch(`${connection.url}/api/ai-browser/recordings`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
+  );
+  if (!response.ok) throw new CommandCenterError(await oauthError(response), response.status);
+  return ((await response.json()) as { data: { uploadUrl: string; name: string } }).data;
+}
+
+/** The recording's upload is done: Command Center shares the file with this person and answers its link. */
+export async function finishRecordingUpload(fileId: string): Promise<{ url: string; name: string }> {
+  const connection = await freshConnection();
+  const response = await withCommandCenterToken(token =>
+    ccFetch(`${connection.url}/api/ai-browser/recordings/finish`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId }),
+    }),
+  );
+  if (!response.ok) throw new CommandCenterError(await oauthError(response), response.status);
+  return ((await response.json()) as { data: { url: string; name: string } }).data;
+}

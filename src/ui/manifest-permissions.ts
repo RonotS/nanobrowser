@@ -29,6 +29,8 @@ export const REQUIRED_PERMISSIONS = [
   'scripting',
   // Signing in to Command Center: chrome.identity.launchWebAuthFlow. It adds no install warning.
   'identity',
+  // The notetaker records the person's Meet tab (video + audio) after they press Take notes. No install warning.
+  'tabCapture',
 ] as const satisfies readonly chrome.runtime.ManifestPermission[];
 
 export interface PermissionLists {

@@ -25,6 +25,7 @@ import type { MessageKey } from '@src/ui/i18n';
 import { SpinnerIcon } from '@src/ui/icons';
 import type { SideAsk } from './side-view';
 import { NotesView, startNotes } from './NotesView';
+import { startRecording } from './recorder';
 import { notesStorage } from '@src/store/meeting-notes';
 import type { ChatModel } from '@src/llm/providers';
 
@@ -100,8 +101,12 @@ export function MeetingView({ onAsk, model }: { onAsk: (ask: SideAsk) => void; m
       return;
     }
     setNotesError(null);
+    // The recording starts first, straight from the click: tab capture and Chrome's share picker both need it.
+    const recording = startRecording(activeTab.id, activeTab.title || activeTab.url).catch((e: unknown) =>
+      e instanceof Error ? e : new Error(String(e)),
+    );
     try {
-      await startNotes(activeTab);
+      await startNotes(activeTab, recording);
     } catch (e) {
       setNotesError((e as Error).message);
     }
