@@ -61,6 +61,8 @@ import type { ChatModel } from '@src/llm/providers';
 import { TEACH_MODEL } from '@src/llm/teach';
 import { TeachVideo } from './TeachVideo';
 import { PanelRail } from './PanelRail';
+import { MeetingView } from './MeetingView';
+import { meetingStorage } from '@src/store/meeting-bot';
 import type { RailView } from './PanelRail';
 import { SideView } from './SideView';
 import { clock, prepDetails } from './side-view';
@@ -187,6 +189,14 @@ export function App() {
   // The side views (PanelRail): which ones Command Center opens to this person's role, and the one shown.
   const [railViews, setRailViews] = useState<PanelView[]>([]);
   const [view, setView] = useState<RailView>('chat');
+  /** Bash AI is in a meeting this panel follows (the Meeting view's dot). */
+  const [inMeeting, setInMeeting] = useState(false);
+  useEffect(() => {
+    const read = () =>
+      void meetingStorage.get().then(m => setInMeeting(Boolean(m && Date.parse(m.expiresAt) > Date.now())));
+    read();
+    return meetingStorage.subscribe(read);
+  }, []);
   /** Files attached to the next message, already in the blob store. */
   const [files, setFiles] = useState<PendingFile[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
@@ -476,7 +486,7 @@ export function App() {
     };
   }, [railKey]);
   useEffect(() => {
-    if (view !== 'chat' && !railViews.includes(view)) setView('chat');
+    if (view !== 'chat' && view !== 'meeting' && !railViews.includes(view)) setView('chat');
   }, [railViews, view]);
   // A card that needs the person (an approval, a question) brings the chat back, so a task never waits out of sight.
   useEffect(() => {
@@ -639,7 +649,11 @@ export function App() {
       {/* The side views' strip on the right; the chat keeps its place (and its state) while another view shows. */}
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
-          {view !== 'chat' ? <SideView key={`${view}:${railKey}`} view={view} onAsk={askFromSide} onTalk={talkFromSide} /> : null}
+          {view === 'meeting' ? (
+            <MeetingView onAsk={askFromSide} />
+          ) : view !== 'chat' ? (
+            <SideView key={`${view}:${railKey}`} view={view} onAsk={askFromSide} onTalk={talkFromSide} />
+          ) : null}
           <div className={view === 'chat' ? 'contents' : 'hidden'}>
             {confirmNewChat ? (
               <div className="flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
@@ -888,7 +902,7 @@ export function App() {
             />
           </div>
         </div>
-        {railViews.length ? <PanelRail views={railViews} current={view} onPick={setView} /> : null}
+        <PanelRail views={railViews} current={view} onPick={setView} live={inMeeting} />
       </div>
     </div>
   );

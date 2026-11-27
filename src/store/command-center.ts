@@ -859,3 +859,42 @@ export async function refreshPrep(clientId: string): Promise<PanelData['prep']> 
   if (!response.ok) throw new CommandCenterError(await oauthError(response), response.status);
   return ((await response.json()) as { data: PanelData['prep'] }).data;
 }
+
+/** A meeting Bash AI was sent into (Command Center's /api/ai-browser/meeting-bot). */
+export interface MeetingBotStart {
+  sessionId: string;
+  /** The meeting bot service the panel reads the live transcript from. */
+  botUrl: string;
+  /** The call's pass: reads this call's transcript, and lets the bot look things up as this person. */
+  grant: string;
+  expiresAt: string;
+  title: string | null;
+  invited: string[];
+  dialInFromInvite: boolean;
+}
+
+/** Command Center could not find the meeting's phone number: the person pastes Meet's "Join by phone" line. */
+export class MeetingNeedsDialInError extends CommandCenterError {}
+
+/**
+ * Sends Bash AI into a Google Meet by phone (Aaron 2026-11-26). Command Center finds the meeting on the team's
+ * calendars by its Meet link and reads the phone dial-in from the invite; `dialIn` is only needed for a meeting that
+ * is on nobody's calendar. Internal meetings only: Command Center refuses an invite with outside guests.
+ */
+export async function startMeetingBot(input: { meetUrl?: string; dialIn?: string }): Promise<MeetingBotStart> {
+  const connection = await freshConnection();
+  const response = await withCommandCenterToken(token =>
+    ccFetch(`${connection.url}/api/ai-browser/meeting-bot`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }),
+  );
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { error?: string; needDialIn?: boolean } | null;
+    const message = body?.error ?? `Command Center answered ${response.status}.`;
+    if (body?.needDialIn) throw new MeetingNeedsDialInError(message, response.status);
+    throw new CommandCenterError(message, response.status);
+  }
+  return ((await response.json()) as { data: MeetingBotStart }).data;
+}

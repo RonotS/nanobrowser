@@ -295,6 +295,13 @@ export const CalendarIcon = (p: IconProps) => (
   </Svg>
 );
 
+/** A phone handset: Bash AI in a meeting by phone. */
+export const PhoneIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M5 4h3.5l1.5 4-2.2 1.4a11 11 0 0 0 6.8 6.8L16 14l4 1.5V19a1 1 0 0 1-1 1A15 15 0 0 1 4 5a1 1 0 0 1 1-1Z" />
+  </Svg>
+);
+
 /** ClickUp lists: stacked rows. */
 export const ListsIcon = (p: IconProps) => (
   <Svg {...p}>

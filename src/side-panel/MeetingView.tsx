@@ -1,0 +1,325 @@
+// The Meeting view (Aaron 2026-11-26): send Bash AI into a Google Meet, follow what it hears in a live transcript,
+// ask about the meeting in the chat, and remove it from the call. Bash AI joins by phone through the meeting bot
+// (RonotS/meeting-bot): Command Center finds the meeting's phone number on the calendar invite (or the person pastes
+// Meet's "Join by phone" line), and the bot answers in the meeting only when someone says "Bash AI". Internal meetings
+// only. The transcript is read straight from the bot with the call's pass, every two seconds while the call is on.
+import { useEffect, useRef, useState } from 'react';
+import { CommandCenterError, MeetingNeedsDialInError, startMeetingBot } from '@src/store/command-center';
+import {
+  MeetingGoneError,
+  leaveMeeting,
+  lineClock,
+  looksLikeDialIn,
+  meetCallUrl,
+  meetingStorage,
+  mergeLines,
+  readMeeting,
+  transcriptQuote,
+} from '@src/store/meeting-bot';
+import type { FollowedMeeting, MeetingLine, MeetingStatus } from '@src/store/meeting-bot';
+import { t } from '@src/ui/i18n';
+import type { MessageKey } from '@src/ui/i18n';
+import { SpinnerIcon } from '@src/ui/icons';
+import type { SideAsk } from './side-view';
+
+const POLL_MS = 2000;
+
+/** The Meet call open in this window's active tab, if any. */
+function useActiveMeetUrl(): string | null {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    const read = () =>
+      chrome.tabs
+        .query({ active: true, lastFocusedWindow: true })
+        .then(([tab]) => live && setUrl(meetCallUrl(tab?.url)))
+        .catch(() => live && setUrl(null));
+    void read();
+    const onActivated = () => void read();
+    const onUpdated = (_id: number, change: { url?: string; status?: string }) => {
+      if (change.url || change.status === 'complete') void read();
+    };
+    chrome.tabs.onActivated.addListener(onActivated);
+    chrome.tabs.onUpdated.addListener(onUpdated);
+    return () => {
+      live = false;
+      chrome.tabs.onActivated.removeListener(onActivated);
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+    };
+  }, []);
+  return url;
+}
+
+export function MeetingView({ onAsk }: { onAsk: (ask: SideAsk) => void }) {
+  const [meeting, setMeeting] = useState<FollowedMeeting | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [status, setStatus] = useState<MeetingStatus>('calling');
+  const [endedReason, setEndedReason] = useState<string | null>(null);
+  const [lines, setLines] = useState<MeetingLine[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<'starting' | 'removing' | null>(null);
+  const [needDialIn, setNeedDialIn] = useState(false);
+  const [dialIn, setDialIn] = useState('');
+  const [question, setQuestion] = useState('');
+  const activeMeet = useActiveMeetUrl();
+  const listRef = useRef<HTMLDivElement>(null);
+  const atBottom = useRef(true);
+
+  // The meeting the panel follows survives a panel reload.
+  useEffect(() => {
+    void meetingStorage.get().then(saved => {
+      if (saved && Date.parse(saved.expiresAt) <= Date.now()) {
+        void meetingStorage.set(null);
+        saved = null;
+      }
+      setMeeting(saved);
+      setLoaded(true);
+    });
+    return meetingStorage.subscribe(() => void meetingStorage.get().then(setMeeting));
+  }, []);
+
+  // A new meeting starts a new transcript.
+  useEffect(() => {
+    setLines([]);
+    setStatus('calling');
+    setEndedReason(null);
+  }, [meeting?.sessionId]);
+
+  // The live transcript, every two seconds until the call ends.
+  useEffect(() => {
+    if (!meeting || status === 'ended') return;
+    let live = true;
+    let last = 0;
+    const poll = async () => {
+      try {
+        const view = await readMeeting(meeting, last);
+        if (!live) return;
+        last = view.last;
+        setLines(current => mergeLines(current, view.lines));
+        setStatus(view.status);
+        setEndedReason(view.endedReason);
+        setError(null);
+      } catch (e) {
+        if (!live) return;
+        if (e instanceof MeetingGoneError) {
+          setStatus('ended');
+          setEndedReason(t('meeting.gone'));
+        } else setError((e as Error).message);
+      }
+    };
+    void poll();
+    const timer = setInterval(() => void poll(), POLL_MS);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+  }, [meeting, status === 'ended']); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const list = listRef.current;
+    if (list && atBottom.current) list.scrollTop = list.scrollHeight;
+  }, [lines]);
+
+  const send = async () => {
+    setBusy('starting');
+    setError(null);
+    try {
+      const pasted = dialIn.trim();
+      const started = await startMeetingBot({ meetUrl: activeMeet ?? undefined, dialIn: pasted || undefined });
+      const followed: FollowedMeeting = {
+        sessionId: started.sessionId,
+        botUrl: started.botUrl,
+        grant: started.grant,
+        expiresAt: started.expiresAt,
+        title: started.title,
+        invited: started.invited,
+        meetUrl: activeMeet,
+        startedAt: new Date().toISOString(),
+      };
+      await meetingStorage.set(followed);
+      setMeeting(followed);
+      setNeedDialIn(false);
+      setDialIn('');
+    } catch (e) {
+      if (e instanceof MeetingNeedsDialInError) setNeedDialIn(true);
+      setError(e instanceof CommandCenterError || e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const remove = async () => {
+    if (!meeting) return;
+    setBusy('removing');
+    try {
+      const view = await leaveMeeting(meeting);
+      setStatus(view.status);
+      setEndedReason(view.endedReason);
+    } catch (e) {
+      if (e instanceof MeetingGoneError) {
+        setStatus('ended');
+        setEndedReason(t('meeting.gone'));
+      } else setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const ask = () => {
+    if (!meeting) return;
+    onAsk({
+      text: question.trim() || t('meeting.summary'),
+      title: meeting.title ?? t('meeting.untitled'),
+      // No tab: opening the Meet link again would join the meeting a second time.
+      url: null,
+      details: transcriptQuote(meeting, lines),
+    });
+    setQuestion('');
+  };
+
+  if (!loaded) return <p className="px-3 py-4 text-sm text-nb-muted">{t('side.loading')}</p>;
+
+  return (
+    <section className="flex min-h-0 flex-1 flex-col">
+      <div className="flex items-center gap-2 border-b border-nb-border/60 px-3 py-2">
+        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">
+          {meeting ? (meeting.title ?? t('meeting.untitled')) : t('rail.meeting')}
+        </h2>
+        {meeting ? <StatusBadge status={status} /> : null}
+      </div>
+
+      {error ? (
+        <p role="alert" className="mx-3 mt-2 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-500">
+          {error}
+        </p>
+      ) : null}
+
+      {!meeting ? (
+        <div className="flex flex-col gap-3 p-3 text-sm">
+          <p className="text-nb-muted">{t('meeting.intro')}</p>
+          {activeMeet ? (
+            <p className="rounded-lg bg-nb-surface px-3 py-2 text-xs">
+              {t('meeting.thisMeet', { url: activeMeet.replace('https://', '') })}
+            </p>
+          ) : (
+            <p className="rounded-lg bg-nb-surface px-3 py-2 text-xs text-nb-muted">{t('meeting.openMeet')}</p>
+          )}
+          {needDialIn || !activeMeet ? (
+            <label className="flex flex-col gap-1 text-xs text-nb-muted">
+              {t('meeting.dialInLabel')}
+              <textarea
+                value={dialIn}
+                rows={2}
+                placeholder={t('meeting.dialInPlaceholder')}
+                onChange={e => setDialIn(e.target.value)}
+                className="rounded-lg border border-nb-border/70 bg-nb-bg px-2.5 py-1.5 text-sm text-nb-fg outline-none focus:border-nb-accent"
+              />
+            </label>
+          ) : null}
+          <button
+            type="button"
+            disabled={busy === 'starting' || (!activeMeet && !looksLikeDialIn(dialIn))}
+            onClick={() => void send()}
+            className="flex items-center justify-center gap-2 rounded-lg bg-nb-accent px-3 py-2 text-sm font-medium text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-50">
+            {busy === 'starting' ? <SpinnerIcon size={14} className="animate-spin" /> : null}
+            {busy === 'starting' ? t('meeting.sending') : t('meeting.send')}
+          </button>
+          <p className="text-[11px] text-nb-muted">{t('meeting.rules')}</p>
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-col gap-1 px-3 pt-2 text-[11px] text-nb-muted">
+            {status === 'lobby' ? <p className="text-amber-500">{t('meeting.admit')}</p> : null}
+            {status === 'ended' ? <p>{t('meeting.left', { reason: endedReason ?? '' })}</p> : null}
+            {meeting.invited.length ? (
+              <p className="truncate" title={meeting.invited.join('\n')}>
+                {t('meeting.invited', { names: meeting.invited.join('; ') })}
+              </p>
+            ) : null}
+            <p>{t('meeting.phoneNote')}</p>
+          </div>
+          <div
+            ref={listRef}
+            onScroll={e => {
+              const el = e.currentTarget;
+              atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+            }}
+            className="min-h-0 flex-1 overflow-y-auto px-3 py-2"
+            aria-live="polite">
+            {lines.length ? (
+              <ul className="flex flex-col gap-1.5">
+                {lines.map(line => (
+                  <li key={line.n} className={line.who === 'note' ? 'text-[11px] italic text-nb-muted' : 'text-sm'}>
+                    <span className="mr-1.5 text-[11px] text-nb-muted">{lineClock(line.at)}</span>
+                    {line.who === 'note' ? null : (
+                      <span className={`mr-1 font-medium ${line.who === 'bash-ai' ? 'text-nb-accent' : ''}`}>
+                        {line.who === 'bash-ai' ? 'Bash AI' : t('meeting.who.meeting')}:
+                      </span>
+                    )}
+                    {line.text}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="py-4 text-sm text-nb-muted">{t('meeting.empty')}</p>
+            )}
+          </div>
+          <div className="flex flex-col gap-2 border-t border-nb-border/60 px-3 py-2">
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={question}
+                placeholder={t('meeting.askPlaceholder')}
+                onChange={e => setQuestion(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.nativeEvent.isComposing) ask();
+                }}
+                className="min-w-0 flex-1 rounded-lg border border-nb-border/70 bg-nb-bg px-2.5 py-1.5 text-sm outline-none focus:border-nb-accent"
+              />
+              <button
+                type="button"
+                onClick={ask}
+                className="shrink-0 rounded-lg px-2.5 py-1.5 text-sm text-nb-accent hover:bg-nb-surface">
+                {t('meeting.ask')}
+              </button>
+            </div>
+            <div className="flex justify-end gap-2">
+              {status === 'ended' ? (
+                <button
+                  type="button"
+                  onClick={() => void meetingStorage.set(null)}
+                  className="rounded-lg px-2.5 py-1.5 text-xs text-nb-muted hover:bg-nb-surface hover:text-nb-fg">
+                  {t('meeting.close')}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={busy === 'removing'}
+                  onClick={() => void remove()}
+                  className="rounded-lg px-2.5 py-1.5 text-xs text-red-500 hover:bg-red-500/10 disabled:opacity-50">
+                  {busy === 'removing' ? t('meeting.removing') : t('meeting.remove')}
+                </button>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+function StatusBadge({ status }: { status: MeetingStatus }) {
+  const tone =
+    status === 'in-call'
+      ? 'bg-green-500/15 text-green-600 dark:text-green-400'
+      : status === 'lobby'
+        ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+        : status === 'ended'
+          ? 'bg-nb-surface text-nb-muted'
+          : 'bg-nb-accent/15 text-nb-accent';
+  return (
+    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${tone}`}>
+      {t(`meeting.status.${status}` as MessageKey)}
+    </span>
+  );
+}

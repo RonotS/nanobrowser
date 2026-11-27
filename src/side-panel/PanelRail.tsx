@@ -5,9 +5,10 @@ import type { ReactNode } from 'react';
 import type { PanelView } from '@src/store/command-center';
 import { t } from '@src/ui/i18n';
 import type { MessageKey } from '@src/ui/i18n';
-import { CalendarIcon, ChatIcon, ListsIcon, ShieldIcon, TasksIcon, TrendDownIcon } from '@src/ui/icons';
+import { CalendarIcon, ChatIcon, ListsIcon, PhoneIcon, ShieldIcon, TasksIcon, TrendDownIcon } from '@src/ui/icons';
 
-export type RailView = 'chat' | PanelView;
+/** 'meeting' is the panel's own view (Bash AI in a Google Meet), not one of Command Center's side views. */
+export type RailView = 'chat' | PanelView | 'meeting';
 
 const ICONS: Record<RailView, ReactNode> = {
   chat: <ChatIcon size={17} />,
@@ -16,22 +17,26 @@ const ICONS: Record<RailView, ReactNode> = {
   lists: <ListsIcon size={17} />,
   quality: <ShieldIcon size={17} />,
   churn: <TrendDownIcon size={17} />,
+  meeting: <PhoneIcon size={17} />,
 };
 
 export function PanelRail({
   views,
   current,
   onPick,
+  live = false,
 }: {
   views: PanelView[];
   current: RailView;
   onPick: (view: RailView) => void;
+  /** Bash AI is in a meeting: a dot on the Meeting icon. */
+  live?: boolean;
 }) {
   return (
     <nav
       aria-label={t('rail.label')}
       className="flex w-10 shrink-0 flex-col items-center gap-1 border-l border-nb-border/60 py-2">
-      {(['chat', ...views] as RailView[]).map(view => {
+      {(['chat', ...views, 'meeting'] as RailView[]).map(view => {
         const label = t(`rail.${view}` as MessageKey);
         const on = view === current;
         return (
@@ -42,10 +47,13 @@ export function PanelRail({
             aria-pressed={on}
             title={label}
             onClick={() => onPick(view)}
-            className={`flex size-8 items-center justify-center rounded-lg transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-nb-accent ${
+            className={`relative flex size-8 items-center justify-center rounded-lg transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-nb-accent ${
               on ? 'bg-nb-accent/15 text-nb-accent' : 'text-nb-muted hover:bg-nb-surface hover:text-nb-fg'
             }`}>
             {ICONS[view]}
+            {view === 'meeting' && live ? (
+              <span aria-hidden className="absolute right-1 top-1 size-2 rounded-full bg-green-500" />
+            ) : null}
           </button>
         );
       })}
