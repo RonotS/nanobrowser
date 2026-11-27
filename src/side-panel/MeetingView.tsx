@@ -1,9 +1,14 @@
 // The Meeting view (Aaron 2026-11-26): send Bash AI into a Google Meet, follow what it hears in a live transcript,
-// ask about the meeting in the chat, and remove it from the call. Bash AI joins by phone through the meeting bot
-// (RonotS/meeting-bot): Command Center finds the meeting's phone number on the calendar invite (or the person pastes
-// Meet's "Join by phone" line), and the bot answers in the meeting only when someone says "Bash AI". Internal meetings
-// only. The transcript is read straight from the bot with the call's pass, every two seconds while the call is on.
+// ask about the meeting in the chat, and remove it from the call. The meeting bot (RonotS/meeting-bot) joins in its
+// own browser as "Bash AI", or by phone when that browser isn't signed in (Command Center finds the phone number on
+// the calendar invite, or the person pastes Meet's "Join by phone" line). It answers only when someone says "Bash AI".
+// Internal meetings only. The transcript is read straight from the bot with the call's pass while the call is on.
+//
+// The start screen (Aaron 2026-11-27, "this UI is bad"): no paragraphs. The Meet open in the active tab shows as a
+// card with two buttons, Add Bash AI and Take notes only; with no Meet open, one line says to open one, and the phone
+// line hides behind "Join by phone instead".
 import { useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { useSmoothText } from './SmoothText';
 import { CommandCenterError, MeetingNeedsDialInError, startMeetingBot } from '@src/store/command-center';
 import {
@@ -22,11 +27,11 @@ import {
 import type { FollowedMeeting, LiveMeetingLine, MeetingLine, MeetingStatus } from '@src/store/meeting-bot';
 import { t } from '@src/ui/i18n';
 import type { MessageKey } from '@src/ui/i18n';
-import { SpinnerIcon } from '@src/ui/icons';
+import { SpinnerIcon, VideoIcon } from '@src/ui/icons';
 import type { SideAsk } from './side-view';
 import { NotesView, startNotes } from './NotesView';
 import { startRecording } from './recorder';
-import { notesStorage } from '@src/store/meeting-notes';
+import { meetTitle, notesStorage } from '@src/store/meeting-notes';
 import type { ChatModel } from '@src/llm/providers';
 
 /**
@@ -85,6 +90,8 @@ export function MeetingView({ onAsk, model }: { onAsk: (ask: SideAsk) => void; m
   const [busy, setBusy] = useState<'starting' | 'removing' | null>(null);
   const [needDialIn, setNeedDialIn] = useState(false);
   const [dialIn, setDialIn] = useState('');
+  /** No Meet open, and the person chose to paste a phone line. */
+  const [phoneForm, setPhoneForm] = useState(false);
   const [question, setQuestion] = useState('');
   const activeTab = useActiveMeet();
   const activeMeet = activeTab?.url ?? null;
@@ -199,10 +206,12 @@ export function MeetingView({ onAsk, model }: { onAsk: (ask: SideAsk) => void; m
         invited: started.invited,
         meetUrl: activeMeet,
         startedAt: new Date().toISOString(),
+        mode: started.mode,
       };
       await meetingStorage.set(followed);
       setMeeting(followed);
       setNeedDialIn(false);
+      setPhoneForm(false);
       setDialIn('');
     } catch (e) {
       if (e instanceof MeetingNeedsDialInError) setNeedDialIn(true);
@@ -250,7 +259,7 @@ export function MeetingView({ onAsk, model }: { onAsk: (ask: SideAsk) => void; m
         <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">
           {meeting ? (meeting.title ?? t('meeting.untitled')) : t('rail.meeting')}
         </h2>
-        {meeting ? <StatusBadge status={status} /> : null}
+        {meeting ? <StatusBadge status={status} browser={meeting.mode === 'browser'} /> : null}
       </div>
 
       {error ? (
@@ -260,49 +269,78 @@ export function MeetingView({ onAsk, model }: { onAsk: (ask: SideAsk) => void; m
       ) : null}
 
       {!meeting ? (
-        <div className="flex flex-col gap-3 p-3 text-sm">
-          <p className="text-nb-muted">{t('meeting.intro')}</p>
-          {activeMeet ? (
-            <p className="rounded-lg bg-nb-surface px-3 py-2 text-xs">
-              {t('meeting.thisMeet', { url: activeMeet.replace('https://', '') })}
-            </p>
-          ) : (
-            <p className="rounded-lg bg-nb-surface px-3 py-2 text-xs text-nb-muted">{t('meeting.openMeet')}</p>
-          )}
-          {needDialIn || !activeMeet ? (
-            <label className="flex flex-col gap-1 text-xs text-nb-muted">
-              {t('meeting.dialInLabel')}
-              <textarea
-                value={dialIn}
-                rows={2}
-                placeholder={t('meeting.dialInPlaceholder')}
-                onChange={e => setDialIn(e.target.value)}
-                className="rounded-lg border border-nb-border/70 bg-nb-bg px-2.5 py-1.5 text-sm text-nb-fg outline-none focus:border-nb-accent"
-              />
-            </label>
-          ) : null}
-          {notesError ? <p className="text-xs text-red-500">{notesError}</p> : null}
-          <button
-            type="button"
-            disabled={!activeTab}
-            onClick={() => void takeNotes()}
-            className="rounded-lg border border-nb-border/70 px-3 py-2 text-sm text-nb-fg transition-colors hover:bg-nb-surface disabled:cursor-not-allowed disabled:opacity-50">
-            {t('meeting.takeNotes')}
-          </button>
-          <button
-            type="button"
-            disabled={busy === 'starting' || (!activeMeet && !looksLikeDialIn(dialIn))}
-            onClick={() => void send()}
-            className="flex items-center justify-center gap-2 rounded-lg bg-nb-accent px-3 py-2 text-sm font-medium text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-50">
-            {busy === 'starting' ? <SpinnerIcon size={14} className="animate-spin" /> : null}
-            {busy === 'starting' ? t('meeting.sending') : t('meeting.send')}
-          </button>
-          <p className="text-[11px] text-nb-muted">{t('meeting.rules')}</p>
-        </div>
+        activeTab ? (
+          <div className="flex flex-col gap-2 p-3">
+            <div className="flex items-center gap-2.5 rounded-xl border border-nb-border/60 bg-nb-surface px-3 py-2.5">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-green-500/15 text-green-600 dark:text-green-400">
+                <VideoIcon size={18} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-semibold text-nb-fg">
+                  {meetTitle(activeTab.title, activeTab.url)}
+                </span>
+                <span className="block truncate text-[11px] text-nb-muted">
+                  {activeTab.url.replace('https://', '')}
+                </span>
+              </span>
+            </div>
+            {needDialIn ? <DialInField value={dialIn} onChange={setDialIn} /> : null}
+            {notesError ? <p className="text-xs text-red-500">{notesError}</p> : null}
+            <PrimaryButton
+              disabled={busy === 'starting' || (needDialIn && !looksLikeDialIn(dialIn))}
+              busy={busy === 'starting'}
+              onClick={() => void send()}>
+              {needDialIn ? t('meeting.addByPhone') : t('meeting.add')}
+            </PrimaryButton>
+            <button
+              type="button"
+              disabled={busy === 'starting'}
+              onClick={() => void takeNotes()}
+              className="cursor-pointer rounded-lg border border-nb-border/70 px-3 py-2 text-sm font-medium text-nb-fg transition-colors hover:bg-nb-surface disabled:cursor-not-allowed disabled:opacity-50">
+              {t('meeting.notesOnly')}
+            </button>
+          </div>
+        ) : phoneForm ? (
+          <div className="flex flex-col gap-2 p-3">
+            <DialInField value={dialIn} onChange={setDialIn} />
+            <PrimaryButton
+              disabled={busy === 'starting' || !looksLikeDialIn(dialIn)}
+              busy={busy === 'starting'}
+              onClick={() => void send()}>
+              {t('meeting.addByPhone')}
+            </PrimaryButton>
+            <button
+              type="button"
+              onClick={() => {
+                setPhoneForm(false);
+                setError(null);
+              }}
+              className="cursor-pointer self-center rounded-lg px-2.5 py-1.5 text-xs text-nb-muted hover:bg-nb-surface hover:text-nb-fg">
+              {t('meeting.cancel')}
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 pb-12 text-center">
+            <span className="flex size-12 items-center justify-center rounded-2xl bg-nb-surface text-nb-muted">
+              <VideoIcon size={22} />
+            </span>
+            <p className="text-sm font-medium text-nb-fg">{t('meeting.noMeet')}</p>
+            <button
+              type="button"
+              onClick={() => setPhoneForm(true)}
+              className="cursor-pointer rounded-lg px-2.5 py-1 text-xs text-nb-accent hover:bg-nb-surface">
+              {t('meeting.byPhone')}
+            </button>
+          </div>
+        )
       ) : (
         <>
           <div className="flex flex-col gap-1 px-3 pt-2 text-[11px] text-nb-muted">
-            {status === 'lobby' ? <p className="text-amber-500">{t('meeting.admit')}</p> : null}
+            {status === 'lobby' ? (
+              <p className="text-amber-500">
+                {meeting.mode === 'browser' ? t('meeting.admitBrowser') : t('meeting.admit')}
+              </p>
+            ) : null}
             {status === 'ended' ? <p>{t('meeting.left', { reason: endedReason ?? '' })}</p> : null}
             {status === 'ended' && NOT_LET_IN.test(endedReason ?? '') && activeTab ? (
               <button
@@ -317,7 +355,6 @@ export function MeetingView({ onAsk, model }: { onAsk: (ask: SideAsk) => void; m
                 {t('meeting.invited', { names: meeting.invited.join('; ') })}
               </p>
             ) : null}
-            <p>{t('meeting.phoneNote')}</p>
           </div>
           <div
             ref={listRef}
@@ -429,7 +466,7 @@ function SmoothSpan({ id, text }: { id: string; text: string }) {
   return <>{useSmoothText(`meeting:${id}`, text, true)}</>;
 }
 
-function StatusBadge({ status }: { status: MeetingStatus }) {
+function StatusBadge({ status, browser }: { status: MeetingStatus; browser: boolean }) {
   const tone =
     status === 'in-call'
       ? 'bg-green-500/15 text-green-600 dark:text-green-400'
@@ -440,7 +477,47 @@ function StatusBadge({ status }: { status: MeetingStatus }) {
           : 'bg-nb-accent/15 text-nb-accent';
   return (
     <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${tone}`}>
-      {t(`meeting.status.${status}` as MessageKey)}
+      {status === 'calling' && browser ? t('meeting.status.joining') : t(`meeting.status.${status}` as MessageKey)}
     </span>
+  );
+}
+
+/** The meeting's "Join by phone" line, pasted from Meet's Meeting details. */
+function DialInField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  return (
+    <label className="flex flex-col gap-1 text-[11px] font-medium text-nb-muted">
+      {t('meeting.dialInLabel')}
+      <textarea
+        value={value}
+        rows={2}
+
+        placeholder={t('meeting.dialInPlaceholder')}
+        onChange={e => onChange(e.target.value)}
+        className="resize-none rounded-lg border border-nb-border/70 bg-nb-bg px-2.5 py-1.5 text-sm font-normal text-nb-fg outline-none placeholder:text-nb-muted/60 focus:border-nb-accent"
+      />
+    </label>
+  );
+}
+
+function PrimaryButton({
+  disabled,
+  busy,
+  onClick,
+  children,
+}: {
+  disabled: boolean;
+  busy: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-nb-accent px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-nb-accent-strong disabled:cursor-not-allowed disabled:opacity-50">
+      {busy ? <SpinnerIcon size={14} className="animate-spin" /> : null}
+      {busy ? t('meeting.adding') : children}
+    </button>
   );
 }

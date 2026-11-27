@@ -871,6 +871,8 @@ export interface MeetingBotStart {
   title: string | null;
   invited: string[];
   dialInFromInvite: boolean;
+  /** In its own browser as "Bash AI", or by phone. */
+  mode?: 'browser' | 'phone';
 }
 
 /** Command Center could not find the meeting's phone number: the person pastes Meet's "Join by phone" line. */

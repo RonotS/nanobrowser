@@ -48,6 +48,8 @@ export interface FollowedMeeting {
   invited: string[];
   meetUrl: string | null;
   startedAt: string;
+  /** In its own browser as "Bash AI", or by phone (older saves have none: phone). */
+  mode?: 'browser' | 'phone';
 }
 
 export const meetingStorage = createStorage<FollowedMeeting | null>('kai.meetingBot', null, { liveUpdate: true });
