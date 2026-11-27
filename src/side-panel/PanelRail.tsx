@@ -25,19 +25,28 @@ export function PanelRail({
   current,
   onPick,
   live = false,
+  notes = null,
 }: {
   views: PanelView[];
   current: RailView;
   onPick: (view: RailView) => void;
   /** Bash AI is in a meeting: a dot on the Meeting icon. */
   live?: boolean;
+  /**
+   * Notes are being taken (and the call recorded) in a Meet tab: a flashing red dot on the Meeting icon, seen from any
+   * view (Aaron 2026-11-27: chatting doesn't stop the notes, so the panel should show they go on).
+   */
+  notes?: 'recording' | 'notes' | null;
 }) {
   return (
     <nav
       aria-label={t('rail.label')}
       className="flex w-10 shrink-0 flex-col items-center gap-1 border-l border-nb-border/60 py-2">
       {(['chat', ...views, 'meeting'] as RailView[]).map(view => {
-        const label = t(`rail.${view}` as MessageKey);
+        const label =
+          view === 'meeting' && notes
+            ? t(notes === 'recording' ? 'rail.meetingRecording' : 'rail.meetingNotes')
+            : t(`rail.${view}` as MessageKey);
         const on = view === current;
         return (
           <button
@@ -51,7 +60,12 @@ export function PanelRail({
               on ? 'bg-nb-accent/15 text-nb-accent' : 'text-nb-muted hover:bg-nb-surface hover:text-nb-fg'
             }`}>
             {ICONS[view]}
-            {view === 'meeting' && live ? (
+            {view === 'meeting' && notes ? (
+              <span aria-hidden className="absolute right-1 top-1 flex size-2">
+                <span className="absolute inline-flex size-full rounded-full bg-red-500 opacity-75 motion-safe:animate-ping" />
+                <span className="relative inline-flex size-2 rounded-full bg-red-500" />
+              </span>
+            ) : view === 'meeting' && live ? (
               <span aria-hidden className="absolute right-1 top-1 size-2 rounded-full bg-green-500" />
             ) : null}
           </button>

@@ -175,6 +175,18 @@ export function findDeviceNames(
   return out;
 }
 
+/** One line of speech as the notes keep it: Meet's newest text for it, and when it was heard (this machine's clock). */
+export interface FeedLine {
+  /** Stable for the session, whatever ids Meet used for it. */
+  id: string;
+  speaker: string;
+  text: string;
+  final: boolean;
+  /** When its first and latest updates arrived (ms). */
+  start: number;
+  end: number;
+}
+
 /** What the Meet tab's notes script reports to the worker (runtime message `kai-meet-feed`). */
 export interface FeedReport {
   type: 'kai-meet-feed';
@@ -185,23 +197,109 @@ export interface FeedReport {
    */
   feed: 'live' | 'asked' | 'waiting' | 'no-hook';
   inCall: boolean;
-  /** Utterances that changed since the last report, with the speaker's name. */
-  utterances: Array<{ id: string; speaker: string; text: string; final: boolean }>;
+  /** Lines that changed since the last report, with the speaker's name. */
+  utterances: FeedLine[];
 }
 
-/** Keeps the newest version of each utterance; answers whether this update changed it. */
-export class UtteranceBook {
-  readonly #byId = new Map<string, FeedUtterance>();
+/** Words, lowercased, for comparing two versions of one line. */
+const words = (text: string) => text.toLowerCase().match(/[\p{L}\p{N}']+/gu) ?? [];
 
-  add(u: FeedUtterance): boolean {
-    const had = this.#byId.get(u.id);
-    if (had && (had.version > u.version || (had.version === u.version && had.text === u.text))) return false;
-    this.#byId.set(u.id, u);
-    return true;
+/** How many words two texts start with in common. */
+function sharedStart(a: string, b: string): number {
+  const x = words(a);
+  const y = words(b);
+  let n = 0;
+  while (n < x.length && n < y.length && x[n] === y[n]) n++;
+  return n;
+}
+
+/** One text begins with the other (word by word): the same speech, one copy further along. */
+function sameSpeech(a: string, b: string): boolean {
+  const n = Math.min(words(a).length, words(b).length);
+  return n >= 1 && sharedStart(a, b) === n;
+}
+
+/** Copies of one line under two ids start this close together. */
+const TWIN_MS = 2000;
+/** An unfinished line cut off by a new request is carried on by the new one within this long. */
+const CONTINUE_MS = 15_000;
+
+/**
+ * Meet's caption updates as lines of speech, the way CallScribe (MIT, src/shared/merge.js) learned they behave live:
+ * - every request for captions starts a new round (`epoch`), and ids start over in it, so an id is only known within
+ *   its round and its speaker's device;
+ * - an id that comes back with a much lower version and other words is new speech, not a late copy;
+ * - the same speech sometimes comes under two ids, starting within 2 s: it stays one line;
+ * - an unfinished line cut off by a new round is carried on by the new round's first line from that device.
+ * Each line gets an id of its own, so a reused Meet id never overwrites an earlier line.
+ */
+export class LineBook {
+  readonly #byKey = new Map<string, { line: FeedLine; version: number; device: string; epoch: number }>();
+  readonly #lines: Array<{ line: FeedLine; device: string; epoch: number }> = [];
+  #next = 1;
+
+  /** Adds an update; answers the line it changed, or null when it changed nothing. */
+  add(u: FeedUtterance, epoch: number, at: number): FeedLine | null {
+    const key = `${epoch}|${u.device}|${u.id}`;
+    const text = u.text.trim();
+    const had = this.#byKey.get(key);
+    if (had) {
+      if (u.version < had.version) {
+        // Ids started over under us: other words at a much lower version are new speech.
+        const restarted = had.version - u.version > 1 && text && sharedStart(text, had.line.text) < 2;
+        if (!restarted) return null;
+        this.#byKey.delete(key);
+        return this.add(u, epoch, at);
+      }
+      const final = u.version === had.version ? had.line.final || u.final : u.final;
+      const changed = (text && text !== had.line.text) || final !== had.line.final;
+      had.version = u.version;
+      if (!changed) return null;
+      if (text) had.line.text = text;
+      had.line.final = final;
+      had.line.end = at;
+      return had.line;
+    }
+    if (!text) return null;
+    // A line from an earlier round that this one carries on, or a twin of a line that just began.
+    const same = this.#carriedOn(u.device, epoch, text, at) ?? this.#twin(u.device, text, at);
+    if (same) {
+      this.#byKey.set(key, { line: same.line, version: u.version, device: u.device, epoch });
+      same.epoch = epoch;
+      if (words(text).length >= words(same.line.text).length) same.line.text = text;
+      same.line.final = u.final;
+      same.line.end = at;
+      return same.line;
+    }
+    const line: FeedLine = { id: String(this.#next++), speaker: '', text, final: u.final, start: at, end: at };
+    const entry = { line, device: u.device, epoch };
+    this.#lines.push(entry);
+    this.#byKey.set(key, { line, version: u.version, device: u.device, epoch });
+    return line;
   }
 
-  get(id: string): FeedUtterance | undefined {
-    return this.#byId.get(id);
+  /** The device each line was heard from (for naming). */
+  deviceOf(line: FeedLine): string {
+    return this.#lines.find(e => e.line === line)?.device ?? '';
+  }
+
+  #carriedOn(device: string, epoch: number, text: string, at: number) {
+    for (let i = this.#lines.length - 1; i >= 0; i--) {
+      const e = this.#lines[i];
+      if (e.device !== device) continue;
+      if (e.epoch === epoch || e.line.final || at - e.line.end > CONTINUE_MS) return undefined;
+      return sharedStart(text, e.line.text) >= 2 && sameSpeech(text, e.line.text) ? e : undefined;
+    }
+    return undefined;
+  }
+
+  #twin(device: string, text: string, at: number) {
+    for (let i = this.#lines.length - 1; i >= 0; i--) {
+      const e = this.#lines[i];
+      if (at - e.line.start > TWIN_MS) return undefined;
+      if (e.device === device && !e.line.final && sameSpeech(text, e.line.text)) return e;
+    }
+    return undefined;
   }
 }
 
@@ -216,18 +314,19 @@ export interface FeedIO {
 
 /**
  * One notes session's side of the feed in the Meet tab: asks for captions when the caption channel is open (and again
- * whenever Meet's own CC button changes them, so a person turning CC off doesn't stop the notes), keeps each
- * utterance's newest text, names the speaker, and reports what changed.
+ * whenever Meet's own CC button changes them, so a person turning CC off doesn't stop the notes), keeps each line's
+ * newest text (LineBook), names the speaker, and reports what changed.
  */
 export class FeedSession {
   readonly #key: string;
   readonly #lang: string;
   readonly #io: FeedIO;
-  readonly #book = new UtteranceBook();
+  readonly #book = new LineBook();
   readonly #names = new Map<string, string>();
-  readonly #changed = new Set<string>();
+  readonly #changed = new Set<FeedLine>();
   readonly #startedAt: number;
   #seq = OWN_SEQ;
+  #epoch = 0;
   #hooked = false;
   #open = false;
   #answered = false;
@@ -246,7 +345,7 @@ export class FeedSession {
   }
 
   opened(label: string): void {
-    if (label !== 'captions_v2') return;
+    if (label !== 'captions_v2' || this.#open) return;
     this.#open = true;
     this.ask();
   }
@@ -258,10 +357,11 @@ export class FeedSession {
     this.#flowing = false;
   }
 
-  /** Asks for captions in our language (Meet's CC button sends the same request). */
+  /** Asks for captions in our language (Meet's CC button sends the same request); a new round of ids begins. */
   ask(): void {
     if (!this.#open) return;
     this.#seq += 1;
+    this.#epoch += 1;
     this.#io.send('captions_v2', encodeLanguage(this.#seq, this.#lang));
   }
 
@@ -274,13 +374,20 @@ export class FeedSession {
     if (label !== 'captions_v2') return false;
     if (dir === 'out') {
       const sent = decodeOutgoing(bytes);
-      return sent.kind === 'language' && sent.seq < OWN_SEQ;
+      if (sent.kind !== 'language' || sent.seq >= OWN_SEQ) return false;
+      // Meet's own request starts a round too.
+      this.#epoch += 1;
+      return true;
     }
     const got = decodeIncoming(bytes);
     if (got?.kind === 'reply' && got.seq > OWN_SEQ) this.#answered = true;
     if (got?.kind === 'captions') {
       this.#flowing = true;
-      for (const u of got.utterances) if (this.#book.add(u)) this.#changed.add(u.id);
+      const at = this.#io.now();
+      for (const u of got.utterances) {
+        const line = this.#book.add(u, this.#epoch, at);
+        if (line) this.#changed.add(line);
+      }
     }
     return false;
   }
@@ -294,11 +401,9 @@ export class FeedSession {
   /** The report of what changed since the last one (an empty list is a heartbeat). */
   flush(): FeedReport {
     const tiles = this.#io.tileNames();
-    const utterances = [...this.#changed].flatMap(id => {
-      const u = this.#book.get(id);
-      if (!u) return [];
-      const speaker = this.#names.get(u.device) ?? tiles.get(u.device) ?? '';
-      return [{ id: u.id, speaker, text: u.text, final: u.final }];
+    const utterances = [...this.#changed].map(line => {
+      const device = this.#book.deviceOf(line);
+      return { ...line, speaker: this.#names.get(device) ?? tiles.get(device) ?? '' };
     });
     this.#changed.clear();
     return { type: 'kai-meet-feed', key: this.#key, feed: this.feed, inCall: this.#io.inCall(), utterances };

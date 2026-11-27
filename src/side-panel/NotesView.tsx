@@ -2,8 +2,8 @@
 // from the person's own Google Meet tab, no bot in the call. Meet's caption feed gives a named transcript without its
 // captions box; the recording runs with a timer; a question about the meeting goes to the chat; Stop and save asks the
 // worker to finish. Closing the panel stops nothing (except a recording made through Chrome's share picker).
-import { useEffect, useRef, useState } from 'react';
-import { notesClock, notesQuote, notesStorage } from '@src/store/meeting-notes';
+import { Fragment, useEffect, useRef, useState } from 'react';
+import { notesClock, notesQuote, notesStorage, speakerBlocks } from '@src/store/meeting-notes';
 import type { NotesSession } from '@src/store/meeting-notes';
 import { useStorage } from '@src/ui/hooks';
 import { t } from '@src/ui/i18n';
@@ -47,6 +47,7 @@ export function NotesView({ onAsk }: { onAsk: (ask: SideAsk) => void }) {
 
   if (!session) return null;
   const live = !session.savedAt;
+  const recent = new Set(session.lines.slice(-ANIMATED_LINES).map(l => l.id));
   const ask = () => {
     onAsk({
       text: question.trim() || t('meeting.summary'),
@@ -95,16 +96,22 @@ export function NotesView({ onAsk }: { onAsk: (ask: SideAsk) => void }) {
           <div className="mb-3 whitespace-pre-wrap rounded-lg bg-nb-surface px-3 py-2 text-sm">{session.summary}</div>
         ) : null}
         {session.lines.length ? (
-          <ul className="flex flex-col gap-1.5">
-            {session.lines.map((line, i) => (
-              <li key={line.id} className="text-sm">
-                <span className="mr-1.5 text-[11px] text-nb-muted">{notesClock(line.at)}</span>
-                <span className="mr-1 font-medium">{line.speaker || t('meeting.who.meeting')}:</span>
-                {!seen.current?.has(line.id) && i >= session.lines.length - ANIMATED_LINES ? (
-                  <Smooth id={line.id} text={line.text} />
-                ) : (
-                  line.text
-                )}
+          <ul className="flex flex-col gap-2">
+            {speakerBlocks(session.lines).map(block => (
+              <li key={block.lines[0].id} className="text-sm leading-relaxed">
+                <span className="mr-1.5 text-[11px] text-nb-muted">{notesClock(block.at)}</span>
+                <span className="mr-1 font-medium">{block.speaker || t('meeting.who.meeting')}:</span>
+                {block.lines.map((line, i) => (
+                  <Fragment key={line.id}>
+                    {i ? ' ' : ''}
+                    {/* New words reveal smoothly; a turn OpenAI wrote again replaces Meet's words at once. */}
+                    {!line.polished && !seen.current?.has(line.id) && recent.has(line.id) ? (
+                      <Smooth id={line.id} text={line.text} />
+                    ) : (
+                      line.text
+                    )}
+                  </Fragment>
+                ))}
               </li>
             ))}
           </ul>

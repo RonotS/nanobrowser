@@ -34,6 +34,8 @@ export interface TranscribeOptions {
   abortSignal?: AbortSignal;
   /** Custom fetch, used by tests to inspect requests. */
   fetch?: typeof fetch;
+  /** Words to spell right (names, the company's terms), for OpenAI's models. */
+  prompt?: string;
 }
 
 /**
@@ -65,12 +67,16 @@ const GEMINI_CODES: Record<string, string> = {
  * The provider options for a recording. OpenAI's are always set: for a model the SDK does not know, it would otherwise
  * ask for `verbose_json` with segment timestamps, which only `whisper-1` supports.
  */
-export function languageOptions(kind: ProviderKind, language?: string): Record<string, Record<string, unknown>> {
+export function languageOptions(
+  kind: ProviderKind,
+  language?: string,
+  hint?: string,
+): Record<string, Record<string, unknown>> {
   if (kind === 'gemini') {
     const code = language ? GEMINI_CODES[language] : undefined;
     return code ? { google: { languageCodes: [code] } } : {};
   }
-  const prompt = language ? SCRIPT_PROMPTS[language] : undefined;
+  const prompt = [language ? SCRIPT_PROMPTS[language] : undefined, hint].filter(Boolean).join(' ') || undefined;
   return {
     openai: {
       responseFormat: 'json',
@@ -98,7 +104,7 @@ export async function transcribeAudio(
     const result = await transcribe({
       model,
       audio,
-      providerOptions: languageOptions(kind, options.language) as never,
+      providerOptions: languageOptions(kind, options.language, options.prompt) as never,
       maxRetries: 1,
       abortSignal: options.abortSignal,
     });

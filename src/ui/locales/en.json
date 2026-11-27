@@ -613,6 +613,8 @@
   "side.ask.quality": "What is going on with {name} in Quality Checks, and what should I do first?",
   "side.ask.churn": "Why is {name} at this churn risk level, and what should we do about it?",
   "rail.meeting": "Meeting",
+  "rail.meetingRecording": "Meeting · recording and taking notes",
+  "rail.meetingNotes": "Meeting · taking notes",
   "meeting.dialInLabel": "Meet's Join by phone line",
   "meeting.dialInPlaceholder": "+1 555-010-0199 PIN: 123 456 789#",
   "meeting.admit": "Admit the phone caller in Meet.",

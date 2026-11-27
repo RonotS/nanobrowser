@@ -5,17 +5,64 @@
 // it through Chrome's share picker. While Meet's caption feed is down it also cuts the sound into 15-second clips,
 // which the worker transcribes instead.
 //
+// It also keeps the last 150 s of the call's sound at 16 kHz, so the worker can have each speaker's turn transcribed
+// by OpenAI (better words than Meet's own captions, Aaron 2026-11-27), named from Meet's caption feed.
+//
 // RecorderHost runs recordings in whichever page holds them, on the worker's word (src/extension/meet-notes.ts):
 //   worker -> here   { target: 'recorder', type: 'rec-stop', key } -> { fileId } | { error }
 //                    { target: 'recorder', type: 'rec-transcribe', key, on }
+//                    { target: 'recorder', type: 'rec-slice', key, from, to } -> { wav } | {}   (ms, this clock)
 //   here -> worker   { type: 'kai-rec', key, event: 'progress', recorded, sent }
 //                    { type: 'kai-rec', key, event: 'clip', at, wav }   (base64, 16 kHz mono WAV)
 //                    { type: 'kai-rec', key, event: 'ended' }            (the tab or the sharing ended)
 import { ResumableUpload, recordingMime } from '@src/store/drive-upload';
-import { toWav } from './voice';
+import { encodeWav, toWav } from './voice';
 
 /** A clip for the transcription fallback. */
 export const CLIP_MS = 15_000;
+/** The call's sound kept for transcribing turns, at speech models' rate. */
+const SOUND_KEEP_MS = 150_000;
+const SOUND_RATE = 16_000;
+
+/** Averages a chunk down to 16 kHz (speech needs no more). */
+export function downsample(chunk: Float32Array, rate: number): Float32Array {
+  const ratio = rate / SOUND_RATE;
+  if (ratio <= 1) return chunk.slice();
+  const out = new Float32Array(Math.floor(chunk.length / ratio));
+  for (let i = 0; i < out.length; i++) {
+    const a = Math.floor(i * ratio);
+    const b = Math.min(chunk.length, Math.max(a + 1, Math.floor((i + 1) * ratio)));
+    let sum = 0;
+    for (let j = a; j < b; j++) sum += chunk[j];
+    out[i] = sum / (b - a);
+  }
+  return out;
+}
+
+/** Pieces of 16 kHz sound, each ending at `end` (ms): the samples between `from` and `to`, or null under 0.3 s. */
+export function soundBetween(
+  pieces: Array<{ end: number; samples: Float32Array }>,
+  from: number,
+  to: number,
+): Float32Array | null {
+  const parts: Float32Array[] = [];
+  for (const piece of pieces) {
+    const start = piece.end - (piece.samples.length / SOUND_RATE) * 1000;
+    if (piece.end <= from || start >= to) continue;
+    const a = Math.max(0, Math.round(((from - start) / 1000) * SOUND_RATE));
+    const b = Math.min(piece.samples.length, Math.round(((to - start) / 1000) * SOUND_RATE));
+    if (b > a) parts.push(piece.samples.subarray(a, b));
+  }
+  const total = parts.reduce((n, p) => n + p.length, 0);
+  if (total < SOUND_RATE * 0.3) return null;
+  const out = new Float32Array(total);
+  let at = 0;
+  for (const part of parts) {
+    out.set(part, at);
+    at += part.length;
+  }
+  return out;
+}
 
 export interface RecorderMessage {
   type: 'kai-rec';
@@ -36,6 +83,7 @@ export class MeetingRecorder {
   readonly #upload: ResumableUpload;
   readonly #recorder: MediaRecorder;
   readonly #ended: Array<() => void> = [];
+  readonly #sound: Array<{ end: number; samples: Float32Array }> = [];
   #clips: { stop(): void } | null = null;
   #stopping: Promise<string> | null = null;
 
@@ -46,12 +94,19 @@ export class MeetingRecorder {
     this.withMic = Boolean(options.mic);
     this.#audio = new AudioContext();
     this.#mix = this.#audio.createMediaStreamDestination();
+    const sources: AudioNode[] = [];
     if (this.#tab.getAudioTracks().length) {
       const meeting = this.#audio.createMediaStreamSource(new MediaStream(this.#tab.getAudioTracks()));
       meeting.connect(this.#mix);
       if (options.playBack) meeting.connect(this.#audio.destination);
+      sources.push(meeting);
     }
-    if (this.#mic) this.#audio.createMediaStreamSource(this.#mic).connect(this.#mix);
+    if (this.#mic) {
+      const mic = this.#audio.createMediaStreamSource(this.#mic);
+      mic.connect(this.#mix);
+      sources.push(mic);
+    }
+    void this.#keepSound(sources).catch(() => undefined);
     this.#upload = new ResumableUpload(options.uploadUrl);
     const mimeType = recordingMime();
     this.#recorder = new MediaRecorder(
@@ -65,6 +120,29 @@ export class MeetingRecorder {
     this.#tab.getVideoTracks()[0]?.addEventListener('ended', () => {
       for (const callback of this.#ended.splice(0)) callback();
     });
+  }
+
+  /** Taps the mixed sound (the voice agent's worklet) and keeps the last 150 s of it at 16 kHz. */
+  async #keepSound(sources: AudioNode[]): Promise<void> {
+    if (!sources.length) return;
+    await this.#audio.audioWorklet.addModule(chrome.runtime.getURL('/voice-capture-worklet.js'));
+    const tap = new AudioWorkletNode(this.#audio, 'voice-capture');
+    for (const source of sources) source.connect(tap);
+    // A worklet runs only when something pulls on it: a silent path to the speakers.
+    const silent = this.#audio.createGain();
+    silent.gain.value = 0;
+    tap.connect(silent).connect(this.#audio.destination);
+    tap.port.onmessage = event => {
+      const now = Date.now();
+      this.#sound.push({ end: now, samples: downsample(event.data as Float32Array, this.#audio.sampleRate) });
+      while (this.#sound.length && this.#sound[0].end < now - SOUND_KEEP_MS) this.#sound.shift();
+    };
+  }
+
+  /** The call's sound between two times (ms, this machine's clock) as 16 kHz WAV; null when none is kept. */
+  slice(from: number, to: number): Uint8Array | null {
+    const samples = soundBetween(this.#sound, from, to);
+    return samples ? encodeWav(samples, SOUND_RATE) : null;
   }
 
   get recordedBytes(): number {
@@ -191,6 +269,12 @@ export class RecorderHost {
           : null,
       );
       reply({ ok: true });
+      return undefined;
+    }
+    if (message.type === 'rec-slice') {
+      const { from, to } = message as { from?: number; to?: number };
+      const wav = typeof from === 'number' && typeof to === 'number' ? held.recorder.slice(from, to) : null;
+      reply(wav ? { wav: toBase64(wav) } : {});
       return undefined;
     }
     if (message.type === 'rec-stop') {

@@ -2,9 +2,11 @@
 // closes. The panel starts and stops a session and shows it (NotesView); this keeps it in `notesStorage`:
 //
 // - The words: the Meet tab's notes script (entrypoints/meet-notes.content.ts) reports Meet's caption feed, named
-//   (store/meet-feed.ts). When the feed isn't live 15 s into the call (the tab was opened before Bash AI loaded, or
-//   Meet changed its feed), the recording's sound is transcribed in 15-second clips through Command Center instead,
-//   with no speaker names, until the feed comes back.
+//   (store/meet-feed.ts). Meet's own recognition is so-so (Aaron 2026-11-27: "the transcriptions are bad"), so each
+//   speaker's finished turn is transcribed again by OpenAI through Command Center from the recording's sound (the
+//   last 150 s are kept), and its words replace Meet's when they fit (`fitsTurn`); the names stay Meet's. When the
+//   feed isn't live 15 s into the call (the tab was opened before Bash AI loaded, or Meet changed its feed), the sound
+//   is transcribed in 15-second clips instead, with no speaker names, until the feed comes back.
 // - The recording: Chrome hands the worker the Meet tab (`tabCapture.getMediaStreamId`, allowed once the person has
 //   clicked Bash AI's icon on that tab), and the offscreen document records it to Drive (ui/meeting-recorder.ts).
 //   When Chrome refuses, the panel records it through Chrome's share picker instead, and then it lives in the panel.
@@ -28,12 +30,16 @@ import {
   SUMMARY_SYSTEM,
   addSoundLine,
   applyFeed,
+  fitsTurn,
+  foldTurn,
+  keepTurn,
   meetTitle,
   notesForCommandCenter,
   notesStorage,
   summaryPrompt,
+  turnsToPolish,
 } from '@src/store/meeting-notes';
-import type { NotesRecording, NotesSession } from '@src/store/meeting-notes';
+import type { NotesRecording, NotesSession, Turn } from '@src/store/meeting-notes';
 import type { RecorderMessage } from '@src/ui/meeting-recorder';
 import { ensureOffscreen } from './downloads';
 
@@ -56,6 +62,10 @@ let writing: ReturnType<typeof setTimeout> | null = null;
 let lastInCall: number | null = null;
 let firstInCall: number | null = null;
 let stopping: Promise<void> | null = null;
+/** Feed lines whose turn is being transcribed again. */
+const polishing = new Set<string>();
+/** Where the last transcribed slice of sound ended, so two turns never share words. */
+let lastSliceEnd = 0;
 
 const load = () =>
   (loaded ??= notesStorage.get().then(saved => {
@@ -112,6 +122,8 @@ async function start(tab: {
   };
   lastInCall = firstInCall = null;
   stopping = null;
+  polishing.clear();
+  lastSliceEnd = 0;
   update(s => s, true);
 
   // Chrome hands the worker the tab only when the person has invoked Bash AI on it; asked first, so a refusal can
@@ -161,7 +173,12 @@ function onFeed(report: FeedReport): void {
     lastInCall = now;
     firstInCall ??= now;
   }
-  update(s => ({ ...s, feed: report.feed, lines: applyFeed(s.lines, report.utterances) }));
+  update(s => ({
+    ...s,
+    feed: report.feed,
+    lines: applyFeed(s.lines, report.utterances, new Date(), new Set(s.folded)),
+  }));
+  void polishTurns(report.key);
   // The feed down 15 s into the call: transcribe the sound until it is back.
   const feedDown = report.feed !== 'live' && firstInCall !== null && now - firstInCall > FEED_GRACE_MS;
   if (feedDown !== Boolean(session.fromSound) && session.recording?.state === 'recording') {
@@ -173,13 +190,13 @@ function onFeed(report: FeedReport): void {
   if (!report.inCall && lastInCall !== null && now - lastInCall > LEFT_CALL_MS) void stopAndSave();
 }
 
-/** A clip of the call's sound to transcribe (the feed is down). */
-async function onClip(key: string, at: string, wav: string): Promise<void> {
+/** Sound (base64 WAV) as text, through Command Center's transcription model; '' when it can't. */
+async function transcribe(wav: string, prompt?: string): Promise<string> {
   const cc = await commandCenterStorage.get();
   const model = cc?.extras?.voice.transcription;
-  if (!cc || !model) return;
+  if (!cc || !model) return '';
   const audio = Uint8Array.from(atob(wav), c => c.charCodeAt(0));
-  const text = await transcribeAudio(
+  return transcribeAudio(
     {
       kind: 'openai',
       modelName: model.name,
@@ -187,9 +204,60 @@ async function onClip(key: string, at: string, wav: string): Promise<void> {
       baseUrl: commandCenterBaseUrl(cc.url, 'openai'),
     },
     audio,
-    { language: CAPTION_LANGUAGE, fetch: commandCenterFetch },
+    { language: CAPTION_LANGUAGE, fetch: commandCenterFetch, prompt },
   ).catch(() => '');
+}
+
+/** A clip of the call's sound to transcribe (the feed is down). */
+async function onClip(key: string, at: string, wav: string): Promise<void> {
+  const text = await transcribe(wav);
   if (text && session?.key === key) update(s => ({ ...s, lines: addSoundLine(s.lines, at, text) }));
+}
+
+/** The words OpenAI should spell right: the company's terms and the speakers' names. */
+function spellingHint(current: NotesSession): string {
+  const names = [...new Set(current.lines.map(l => l.speaker).filter(Boolean))];
+  return ['Kinetic Scaling, Bash AI, Command Center, ClickUp, GoHighLevel', ...names].join(', ');
+}
+
+/**
+ * Transcribes finished turns again from the recording's sound (Meet's words stay when OpenAI's don't fit). The
+ * person's own turns need their microphone in the recording: without it they keep Meet's words.
+ */
+async function polishTurns(key: string): Promise<void> {
+  const current = session;
+  if (!current || current.key !== key || current.fromSound || current.recording?.state !== 'recording') return;
+  const cc = await commandCenterStorage.get();
+  if (!cc?.extras?.voice.transcription) return;
+  const me = (cc.viewer?.name ?? cc.user.name).trim().toLowerCase();
+  const withMic = Boolean(current.recording.withMic);
+  for (const turn of turnsToPolish(session?.lines ?? [], Date.now(), polishing)) {
+    if (!withMic && turn.speaker.trim().toLowerCase() === me) {
+      update(s => ({ ...s, lines: keepTurn(s.lines, turn) }));
+      continue;
+    }
+    for (const id of turn.ids) polishing.add(id);
+    void polishTurn(key, turn).finally(() => {
+      for (const id of turn.ids) polishing.delete(id);
+    });
+  }
+}
+
+async function polishTurn(key: string, turn: Turn): Promise<void> {
+  // From 2 s before Meet's first words (its captions lag the voice) to just after its last, never into the last turn.
+  const from = Math.max(turn.start - 2000, lastSliceEnd);
+  const to = turn.end + 600;
+  lastSliceEnd = Math.max(lastSliceEnd, to);
+  const answer = (await chrome.runtime
+    .sendMessage({ target: 'recorder', type: 'rec-slice', key, from, to })
+    .catch(() => undefined)) as { wav?: string } | undefined;
+  const text = answer?.wav && session ? await transcribe(answer.wav, spellingHint(session)) : '';
+  if (session?.key !== key) return;
+  if (text && fitsTurn(turn.text, text)) {
+    update(s => ({ ...s, lines: foldTurn(s.lines, turn, text), folded: [...(s.folded ?? []), ...turn.ids] }));
+  } else {
+    update(s => ({ ...s, lines: keepTurn(s.lines, turn) }));
+  }
 }
 
 function onRecorder(message: RecorderMessage): void {

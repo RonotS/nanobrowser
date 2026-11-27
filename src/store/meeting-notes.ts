@@ -7,7 +7,10 @@ import { createStorage } from './storage';
 import type { ChatForCommandCenter } from './command-center';
 
 export interface NotesLine {
-  /** `f:<utterance>` for a line from Meet's caption feed, `a:<time>` for one transcribed from the call's sound. */
+  /**
+   * `f:<line>` for a line from Meet's caption feed, `t:<first line>` for a speaker's turn OpenAI transcribed again from
+   * the call's sound, `a:<time>` for a clip transcribed while the feed was down.
+   */
   id: string;
   /** The speaker's name; '' when it isn't known (the call's sound has no names). */
   speaker: string;
@@ -15,6 +18,11 @@ export interface NotesLine {
   at: string;
   /** The line won't change any more. */
   done: boolean;
+  /** When it was heard (ms, this machine's clock): the slice of sound to transcribe it from. */
+  start?: number;
+  end?: number;
+  /** Its turn was transcribed again (or kept as Meet heard it): not to be done twice. */
+  polished?: boolean;
 }
 
 export interface NotesSession {
@@ -30,6 +38,8 @@ export interface NotesSession {
   feed?: 'live' | 'asked' | 'waiting' | 'no-hook';
   /** The feed is down, so the call's sound is being transcribed instead. */
   fromSound?: boolean;
+  /** Feed lines folded into a transcribed turn: Meet's late updates for them are left out. */
+  folded?: string[];
   /** Stop and save is under way. */
   saving?: boolean;
   savedAt?: string;
@@ -70,21 +80,126 @@ export function meetTitle(tabTitle: string, meetUrl: string): string {
   return clean || meetUrl.replace('https://', '');
 }
 
-/** Folds caption feed updates into the transcript: an utterance keeps one line, which grows until it is final. */
+/** Folds caption feed updates into the transcript: a line grows until it is final; one already folded stays out. */
 export function applyFeed(
   lines: NotesLine[],
-  utterances: Array<{ id: string; speaker: string; text: string; final: boolean }>,
+  updates: Array<{ id: string; speaker: string; text: string; final: boolean; start?: number; end?: number }>,
   now = new Date(),
+  folded: ReadonlySet<string> = new Set(),
 ): NotesLine[] {
   const next = [...lines];
-  for (const u of utterances) {
-    if (!u.text.trim()) continue;
+  for (const u of updates) {
     const id = `f:${u.id}`;
+    if (!u.text.trim() || folded.has(id)) continue;
     const i = next.findIndex(l => l.id === id);
-    if (i >= 0) next[i] = { ...next[i], text: u.text, speaker: u.speaker || next[i].speaker, done: u.final };
-    else next.push({ id, speaker: u.speaker, text: u.text, at: now.toISOString(), done: u.final });
+    if (i >= 0) {
+      next[i] = { ...next[i], text: u.text, speaker: u.speaker || next[i].speaker, done: u.final, end: u.end };
+    } else {
+      next.push({
+        id,
+        speaker: u.speaker,
+        text: u.text,
+        at: now.toISOString(),
+        done: u.final,
+        start: u.start,
+        end: u.end,
+      });
+    }
   }
   return next.length > MAX_NOTES_LINES ? next.slice(-MAX_NOTES_LINES) : next;
+}
+
+/** A speaker's turn to transcribe again: their feed lines in a row. */
+export interface Turn {
+  ids: string[];
+  speaker: string;
+  start: number;
+  end: number;
+  /** What Meet heard. */
+  text: string;
+}
+
+/** A turn is closed this long after its last words, when nobody else speaks first. */
+export const TURN_PAUSE_MS = 4000;
+/** A long turn is taken in parts of about this length, so it isn't held back for minutes. */
+export const TURN_MAX_MS = 45_000;
+
+/**
+ * The turns ready to transcribe again: a speaker's finished feed lines in a row, closed by another speaker's line, a
+ * 4-second pause, or 45 seconds of talking.
+ */
+export function turnsToPolish(lines: NotesLine[], now: number, busy: ReadonlySet<string> = new Set()): Turn[] {
+  const ready: Turn[] = [];
+  let run: NotesLine[] = [];
+  const close = (closed: boolean) => {
+    const last = run.at(-1);
+    if (last && closed && run.every(l => l.done)) {
+      ready.push({
+        ids: run.map(l => l.id),
+        speaker: run[0].speaker,
+        start: run[0].start ?? 0,
+        end: last.end ?? 0,
+        text: run.map(l => l.text).join(' '),
+      });
+    }
+    run = [];
+  };
+  for (const line of lines) {
+    const candidate =
+      line.id.startsWith('f:') && !line.polished && !busy.has(line.id) && line.start !== undefined && line.end;
+    if (!candidate) {
+      close(true);
+      continue;
+    }
+    if (run.length && line.speaker !== run[0].speaker) close(true);
+    else if (run.length && (line.end ?? 0) - (run[0].start ?? 0) > TURN_MAX_MS) close(true);
+    run.push(line);
+  }
+  const last = run.at(-1);
+  close(Boolean(last && now - (last.end ?? now) > TURN_PAUSE_MS));
+  return ready;
+}
+
+/** The turn's lines become one line with OpenAI's words, in the first line's place. */
+export function foldTurn(lines: NotesLine[], turn: Turn, text: string): NotesLine[] {
+  const ids = new Set(turn.ids);
+  const first = lines.find(l => ids.has(l.id));
+  if (!first) return lines;
+  const line: NotesLine = {
+    id: `t:${turn.ids[0]}`,
+    speaker: turn.speaker,
+    text: text.trim(),
+    at: first.at,
+    done: true,
+    start: turn.start,
+    end: turn.end,
+    polished: true,
+  };
+  return lines.flatMap(l => (l === first ? [line] : ids.has(l.id) ? [] : [l]));
+}
+
+/** The turn's lines keep Meet's words (OpenAI's didn't fit them), marked so they aren't tried again. */
+export function keepTurn(lines: NotesLine[], turn: Turn): NotesLine[] {
+  const ids = new Set(turn.ids);
+  return lines.map(l => (ids.has(l.id) ? { ...l, polished: true } : l));
+}
+
+const wordsOf = (text: string) => text.toLowerCase().match(/[\p{L}\p{N}']+/gu) ?? [];
+
+/**
+ * Whether OpenAI's words can stand for what Meet heard in a turn. The sound slice is the whole call, so a turn whose
+ * speaker isn't in it (their own voice without the microphone) or that caught someone else gives words with little in
+ * common; Meet's words are kept then. Meet can be badly wrong, so similar length is enough when few words match.
+ */
+export function fitsTurn(meet: string, openai: string): boolean {
+  const theirs = wordsOf(openai);
+  const ours = wordsOf(meet);
+  if (!theirs.length) return false;
+  if (!ours.length) return true;
+  const known = new Set(theirs);
+  const shared = ours.filter(w => known.has(w)).length / ours.length;
+  const ratio = theirs.length / ours.length;
+  return shared >= 0.25 || (ours.length >= 3 && ratio >= 0.4 && ratio <= 3);
 }
 
 /** Adds a line transcribed from the call's sound (no speaker), in time order. */
@@ -94,6 +209,17 @@ export function addSoundLine(lines: NotesLine[], at: string, text: string): Note
   const line: NotesLine = { id: `a:${at}`, speaker: '', text: clean, at, done: true };
   const next = [...lines.filter(l => l.id !== line.id), line].sort((a, b) => a.at.localeCompare(b.at));
   return next.length > MAX_NOTES_LINES ? next.slice(-MAX_NOTES_LINES) : next;
+}
+
+/** Lines in a row from one speaker, shown as one block (Meet splits a turn at every pause). */
+export function speakerBlocks(lines: NotesLine[]): Array<{ speaker: string; at: string; lines: NotesLine[] }> {
+  const blocks: Array<{ speaker: string; at: string; lines: NotesLine[] }> = [];
+  for (const line of lines) {
+    const last = blocks.at(-1);
+    if (last && last.speaker === line.speaker) last.lines.push(line);
+    else blocks.push({ speaker: line.speaker, at: line.at, lines: [line] });
+  }
+  return blocks;
 }
 
 /** "11:42 PM" Central time, as the team reads it. */

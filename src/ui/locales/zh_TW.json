@@ -613,6 +613,8 @@
   "side.ask.quality": "{name} 在品質檢查中出了什麼問題？我應該先做什麼？",
   "side.ask.churn": "為什麼 {name} 處於這個流失風險等級？我們應該怎麼做？",
   "rail.meeting": "會議",
+  "rail.meetingRecording": "會議 · 正在錄製並做筆記",
+  "rail.meetingNotes": "會議 · 正在做筆記",
   "meeting.dialInLabel": "Meet 的電話加入資訊",
   "meeting.dialInPlaceholder": "+1 555-010-0199 PIN：123 456 789#",
   "meeting.admit": "請在 Meet 中允許電話來電者加入。",

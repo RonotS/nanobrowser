@@ -613,6 +613,8 @@
   "side.ask.quality": "{name} 在质量检查中出了什么问题？我应该先做什么？",
   "side.ask.churn": "为什么 {name} 处于这个流失风险等级？我们应该怎么做？",
   "rail.meeting": "会议",
+  "rail.meetingRecording": "会议 · 正在录制并记笔记",
+  "rail.meetingNotes": "会议 · 正在记笔记",
   "meeting.dialInLabel": "Meet 的电话加入信息",
   "meeting.dialInPlaceholder": "+1 555-010-0199 PIN：123 456 789#",
   "meeting.admit": "请在 Meet 中允许电话来电者加入。",

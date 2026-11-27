@@ -63,6 +63,7 @@ import { TeachVideo } from './TeachVideo';
 import { PanelRail } from './PanelRail';
 import { MeetingView } from './MeetingView';
 import { meetingStorage } from '@src/store/meeting-bot';
+import { notesStorage } from '@src/store/meeting-notes';
 import type { RailView } from './PanelRail';
 import { SideView } from './SideView';
 import { clock, prepDetails } from './side-view';
@@ -197,6 +198,9 @@ export function App() {
     read();
     return meetingStorage.subscribe(read);
   }, []);
+  /** Notes are being taken in a Meet (the worker keeps them going on any view): a flashing red dot on Meeting. */
+  const notes = useStorage(notesStorage, null);
+  const notesLive = notes && !notes.savedAt ? (notes.recording?.state === 'recording' ? 'recording' : 'notes') : null;
   /** Files attached to the next message, already in the blob store. */
   const [files, setFiles] = useState<PendingFile[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
@@ -902,7 +906,7 @@ export function App() {
             />
           </div>
         </div>
-        <PanelRail views={railViews} current={view} onPick={setView} live={inMeeting} />
+        <PanelRail views={railViews} current={view} onPick={setView} live={inMeeting} notes={notesLive} />
       </div>
     </div>
   );
