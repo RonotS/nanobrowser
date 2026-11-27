@@ -650,7 +650,7 @@ export function App() {
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
           {view === 'meeting' ? (
-            <MeetingView onAsk={askFromSide} />
+            <MeetingView onAsk={askFromSide} model={teachModel} />
           ) : view !== 'chat' ? (
             <SideView key={`${view}:${railKey}`} view={view} onAsk={askFromSide} onTalk={talkFromSide} />
           ) : null}

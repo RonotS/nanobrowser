@@ -24,6 +24,9 @@ import { t } from '@src/ui/i18n';
 import type { MessageKey } from '@src/ui/i18n';
 import { SpinnerIcon } from '@src/ui/icons';
 import type { SideAsk } from './side-view';
+import { NotesView, startNotes } from './NotesView';
+import { notesStorage } from '@src/store/meeting-notes';
+import type { ChatModel } from '@src/llm/providers';
 
 /**
  * While the call is on, the transcript is read often enough to stream (Aaron 2026-11-27: "when it is
@@ -35,15 +38,19 @@ const POLL_MS = 700;
 const ANIMATED_LINES = 6;
 
 /** The Meet call open in this window's active tab, if any. */
-function useActiveMeetUrl(): string | null {
-  const [url, setUrl] = useState<string | null>(null);
+function useActiveMeet(): { id: number; url: string; title: string } | null {
+  const [meet, setMeet] = useState<{ id: number; url: string; title: string } | null>(null);
   useEffect(() => {
     let live = true;
     const read = () =>
       chrome.tabs
         .query({ active: true, lastFocusedWindow: true })
-        .then(([tab]) => live && setUrl(meetCallUrl(tab?.url)))
-        .catch(() => live && setUrl(null));
+        .then(([tab]) => {
+          if (!live) return;
+          const url = meetCallUrl(tab?.url);
+          setMeet(url && tab?.id !== undefined ? { id: tab.id, url, title: tab.title ?? '' } : null);
+        })
+        .catch(() => live && setMeet(null));
     void read();
     const onActivated = () => void read();
     const onUpdated = (_id: number, change: { url?: string; status?: string }) => {
@@ -57,10 +64,13 @@ function useActiveMeetUrl(): string | null {
       chrome.tabs.onUpdated.removeListener(onUpdated);
     };
   }, []);
-  return url;
+  return meet;
 }
 
-export function MeetingView({ onAsk }: { onAsk: (ask: SideAsk) => void }) {
+/** When the bot's call ended because it couldn't get in (declined, nobody admitted, Meet refused). */
+const NOT_LET_IN = /declined|nobody admitted|refused|could not join|can't join/i;
+
+export function MeetingView({ onAsk, model }: { onAsk: (ask: SideAsk) => void; model: ChatModel | null }) {
   const [meeting, setMeeting] = useState<FollowedMeeting | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [status, setStatus] = useState<MeetingStatus>('calling');
@@ -75,7 +85,27 @@ export function MeetingView({ onAsk }: { onAsk: (ask: SideAsk) => void }) {
   const [needDialIn, setNeedDialIn] = useState(false);
   const [dialIn, setDialIn] = useState('');
   const [question, setQuestion] = useState('');
-  const activeMeet = useActiveMeetUrl();
+  const activeTab = useActiveMeet();
+  const activeMeet = activeTab?.url ?? null;
+  const [notesOn, setNotesOn] = useState(false);
+  const [notesError, setNotesError] = useState<string | null>(null);
+  useEffect(() => {
+    const read = () => void notesStorage.get().then(n => setNotesOn(Boolean(n)));
+    read();
+    return notesStorage.subscribe(read);
+  }, []);
+  const takeNotes = async () => {
+    if (!activeTab) {
+      setNotesError(t('notes.noMeet'));
+      return;
+    }
+    setNotesError(null);
+    try {
+      await startNotes(activeTab);
+    } catch (e) {
+      setNotesError((e as Error).message);
+    }
+  };
   const listRef = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
 
@@ -207,6 +237,7 @@ export function MeetingView({ onAsk }: { onAsk: (ask: SideAsk) => void }) {
   };
 
   if (!loaded) return <p className="px-3 py-4 text-sm text-nb-muted">{t('side.loading')}</p>;
+  if (notesOn) return <NotesView model={model} onAsk={onAsk} />;
 
   return (
     <section className="flex min-h-0 flex-1 flex-col">
@@ -245,6 +276,14 @@ export function MeetingView({ onAsk }: { onAsk: (ask: SideAsk) => void }) {
               />
             </label>
           ) : null}
+          {notesError ? <p className="text-xs text-red-500">{notesError}</p> : null}
+          <button
+            type="button"
+            disabled={!activeTab}
+            onClick={() => void takeNotes()}
+            className="rounded-lg border border-nb-border/70 px-3 py-2 text-sm text-nb-fg transition-colors hover:bg-nb-surface disabled:cursor-not-allowed disabled:opacity-50">
+            {t('meeting.takeNotes')}
+          </button>
           <button
             type="button"
             disabled={busy === 'starting' || (!activeMeet && !looksLikeDialIn(dialIn))}
@@ -260,6 +299,14 @@ export function MeetingView({ onAsk }: { onAsk: (ask: SideAsk) => void }) {
           <div className="flex flex-col gap-1 px-3 pt-2 text-[11px] text-nb-muted">
             {status === 'lobby' ? <p className="text-amber-500">{t('meeting.admit')}</p> : null}
             {status === 'ended' ? <p>{t('meeting.left', { reason: endedReason ?? '' })}</p> : null}
+            {status === 'ended' && NOT_LET_IN.test(endedReason ?? '') && activeTab ? (
+              <button
+                type="button"
+                onClick={() => void takeNotes()}
+                className="self-start rounded-lg border border-nb-border/70 px-2.5 py-1.5 text-xs text-nb-fg hover:bg-nb-surface">
+                {t('meeting.takeNotesInstead')}
+              </button>
+            ) : null}
             {meeting.invited.length ? (
               <p className="truncate" title={meeting.invited.join('\n')}>
                 {t('meeting.invited', { names: meeting.invited.join('; ') })}

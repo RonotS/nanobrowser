@@ -639,5 +639,21 @@
   "meeting.status.connected": "Connecting",
   "meeting.status.lobby": "Waiting room",
   "meeting.status.in-call": "In the call",
-  "meeting.status.ended": "Ended"
+  "meeting.status.ended": "Ended",
+  "meeting.takeNotes": "Take notes here (no bot joins)",
+  "meeting.takeNotesInstead": "Take notes here instead",
+  "notes.title": "Notes · {title}",
+  "notes.status.live": "Taking notes",
+  "notes.status.saved": "Saved",
+  "notes.notice.posted": "Told the meeting in its chat: \"{notice}\"",
+  "notes.notice.failed": "Couldn't post in the Meet chat. Tell the meeting yourself: \"{notice}\"",
+  "notes.captionsOff": "Turn on captions in Meet (the CC button) so Bash AI can read who says what.",
+  "notes.empty": "Nothing said yet. Lines appear here as Meet's captions show them.",
+  "notes.someone": "Someone",
+  "notes.stop": "Stop and save",
+  "notes.saving": "Writing the summary and saving…",
+  "notes.saved": "Saved to Command Center (Assistant → Bash AI chats), with a summary.",
+  "notes.saveFailed": "Couldn't save the notes: {error}",
+  "notes.noMeet": "Open your Google Meet call in this window first.",
+  "notes.tabGone": "The Meet tab is gone, so notes stopped."
 }

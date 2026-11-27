@@ -639,5 +639,21 @@
   "meeting.status.connected": "连接中",
   "meeting.status.lobby": "等候室",
   "meeting.status.in-call": "通话中",
-  "meeting.status.ended": "已结束"
+  "meeting.status.ended": "已结束",
+  "meeting.takeNotes": "在此记笔记（无需机器人加入）",
+  "meeting.takeNotesInstead": "改为在此记笔记",
+  "notes.title": "笔记 · {title}",
+  "notes.status.live": "正在记笔记",
+  "notes.status.saved": "已保存",
+  "notes.notice.posted": "已在会议聊天中告知：“{notice}”",
+  "notes.notice.failed": "无法在 Meet 聊天中发送。请自行告知会议：“{notice}”",
+  "notes.captionsOff": "请在 Meet 中打开字幕（CC 按钮），以便 Bash AI 读取谁说了什么。",
+  "notes.empty": "还没有人说话。Meet 字幕出现后，内容会显示在这里。",
+  "notes.someone": "某人",
+  "notes.stop": "停止并保存",
+  "notes.saving": "正在撰写摘要并保存…",
+  "notes.saved": "已连同摘要保存到 Command Center（Assistant → Bash AI 聊天）。",
+  "notes.saveFailed": "无法保存笔记：{error}",
+  "notes.noMeet": "请先在此窗口打开你的 Google Meet 通话。",
+  "notes.tabGone": "Meet 标签页已关闭，笔记已停止。"
 }
