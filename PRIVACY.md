@@ -28,6 +28,7 @@ When you press **Take notes only** in a Google Meet call (the Meeting view), Bas
 - **Records the Meet tab** (video, the call's sound, and your microphone if you allowed it) and sends it in pieces straight to Google Drive, into Command Center's "Bash AI Meeting Recordings" folder. Command Center shares the finished file with you only.
 - **Transcribes the call's sound** through Command Center's transcription model, in 15-second clips, only while Meet's captions can't be read. The clips are not kept.
 - **Posts a notice in the Meet chat**, from your account, that the call is being noted and recorded.
+- **Posts in the Meet chat when asked.** When someone in the call says "Bash AI" and asks it to put something in the chat, the transcript so far goes to Claude through Command Center to write that message, and it is posted from your account, marked "Bash AI:". It uses only what was said in the meeting, never Command Center's data.
 - **Saves the notes** (the transcript, an AI summary written by Claude through Command Center, and the recording's link) in Command Center as a Bash AI chat, which Bash AI's search reads.
 
 ## The voice agent

@@ -651,6 +651,8 @@
   "notes.status.saved": "Saved",
   "notes.notice.failed": "Couldn't post the notice in Meet's chat: tell the meeting you're recording.",
   "notes.empty": "Nothing said yet.",
+  "notes.chat.sent": "posted in the chat",
+  "notes.chat.failed": "couldn't post in the chat",
   "notes.stop": "Stop and save",
   "notes.saving": "Writing the summary and saving…",
   "notes.saved": "Saved to Command Center (Assistant → Bash AI chats), with a summary.",

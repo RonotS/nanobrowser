@@ -10,6 +10,9 @@
 // - The recording: Chrome hands the worker the Meet tab (`tabCapture.getMediaStreamId`, allowed once the person has
 //   clicked Bash AI's icon on that tab), and the offscreen document records it to Drive (ui/meeting-recorder.ts).
 //   When Chrome refuses, the panel records it through Chrome's share picker instead, and then it lives in the panel.
+// - The chat: when a finished turn names Bash AI and asks for something in Meet's chat ("Bash AI, put the action items
+//   in the chat"), Claude writes it from the transcript only (store/meeting-chat.ts) and it is posted from the person's
+//   account as "Bash AI: …", and kept in the notes.
 // - The end: Stop and save, the tab closing, or 20 s out of the call. The recording's upload is finished and shared
 //   with the person, Claude through Command Center writes the summary, and the notes go to Command Center.
 import { generateText } from 'ai';
@@ -36,10 +39,12 @@ import {
   meetTitle,
   notesForCommandCenter,
   notesStorage,
+  notesText,
   summaryPrompt,
   turnsToPolish,
 } from '@src/store/meeting-notes';
 import type { NotesRecording, NotesSession, Turn } from '@src/store/meeting-notes';
+import { CHAT_SYSTEM, NO_MESSAGE, chatPrompt, isAddressed, splitChatMessage } from '@src/store/meeting-chat';
 import type { RecorderMessage } from '@src/ui/meeting-recorder';
 import { ensureOffscreen } from './downloads';
 
@@ -221,29 +226,36 @@ function spellingHint(current: NotesSession): string {
 }
 
 /**
- * Transcribes finished turns again from the recording's sound (Meet's words stay when OpenAI's don't fit). The
- * person's own turns need their microphone in the recording: without it they keep Meet's words.
+ * A speaker's finished turns: transcribed again from the recording's sound (Meet's words stay when OpenAI's don't fit,
+ * or when the recording isn't running; the person's own turns need their microphone in it), then checked for a
+ * request to Bash AI to post in the Meet chat.
  */
 async function polishTurns(key: string): Promise<void> {
   const current = session;
-  if (!current || current.key !== key || current.fromSound || current.recording?.state !== 'recording') return;
+  if (!current || current.key !== key || current.fromSound) return;
   const cc = await commandCenterStorage.get();
-  if (!cc?.extras?.voice.transcription) return;
-  const me = (cc.viewer?.name ?? cc.user.name).trim().toLowerCase();
-  const withMic = Boolean(current.recording.withMic);
+  const recording = current.recording?.state === 'recording' && Boolean(cc?.extras?.voice.transcription);
+  const me = cc ? (cc.viewer?.name ?? cc.user.name).trim().toLowerCase() : '';
   for (const turn of turnsToPolish(session?.lines ?? [], Date.now(), polishing)) {
-    if (!withMic && turn.speaker.trim().toLowerCase() === me) {
-      update(s => ({ ...s, lines: keepTurn(s.lines, turn) }));
-      continue;
-    }
     for (const id of turn.ids) polishing.add(id);
-    void polishTurn(key, turn).finally(() => {
-      for (const id of turn.ids) polishing.delete(id);
-    });
+    const ownWithoutMic = !current.recording?.withMic && turn.speaker.trim().toLowerCase() === me;
+    const words = recording && !ownWithoutMic ? polishTurn(key, turn) : keepWords(turn);
+    void words
+      .then(text => heard(key, turn.speaker, text))
+      .finally(() => {
+        for (const id of turn.ids) polishing.delete(id);
+      });
   }
 }
 
-async function polishTurn(key: string, turn: Turn): Promise<void> {
+/** The turn keeps Meet's words; answers them. */
+async function keepWords(turn: Turn): Promise<string> {
+  update(s => ({ ...s, lines: keepTurn(s.lines, turn) }));
+  return turn.text;
+}
+
+/** Transcribes a turn again; answers the words it ends up with. */
+async function polishTurn(key: string, turn: Turn): Promise<string> {
   // From 2 s before Meet's first words (its captions lag the voice) to just after its last, never into the last turn.
   const from = Math.max(turn.start - 2000, lastSliceEnd);
   const to = turn.end + 600;
@@ -252,12 +264,64 @@ async function polishTurn(key: string, turn: Turn): Promise<void> {
     .sendMessage({ target: 'recorder', type: 'rec-slice', key, from, to })
     .catch(() => undefined)) as { wav?: string } | undefined;
   const text = answer?.wav && session ? await transcribe(answer.wav, spellingHint(session)) : '';
-  if (session?.key !== key) return;
+  if (session?.key !== key) return turn.text;
   if (text && fitsTurn(turn.text, text)) {
     update(s => ({ ...s, lines: foldTurn(s.lines, turn, text), folded: [...(s.folded ?? []), ...turn.ids] }));
-  } else {
-    update(s => ({ ...s, lines: keepTurn(s.lines, turn) }));
+    return text;
   }
+  update(s => ({ ...s, lines: keepTurn(s.lines, turn) }));
+  return turn.text;
+}
+
+/** Chat requests, one at a time. */
+let chatQueue: Promise<void> = Promise.resolve();
+
+/** A finished turn: when it names Bash AI and asks for something in the Meet chat, Bash AI posts it there. */
+function heard(key: string, speaker: string, text: string): void {
+  if (!isAddressed(text)) return;
+  chatQueue = chatQueue.then(() => postRequested(key, speaker, text)).catch(() => undefined);
+}
+
+async function postRequested(key: string, speaker: string, request: string): Promise<void> {
+  const current = session;
+  const model = current?.key === key && !current.savedAt ? await summaryModel() : null;
+  if (!current || !model) return;
+  const result = await generateText({
+    model: model.model,
+    system: CHAT_SYSTEM,
+    prompt: chatPrompt(current.title, notesText(current.lines, 40_000), speaker, request),
+    maxOutputTokens: 800,
+    maxRetries: 1,
+    ...(model.providerOptions ? { providerOptions: model.providerOptions as never } : {}),
+  }).catch(() => null);
+  const message = result?.text.trim() ?? '';
+  if (!message || message.includes(NO_MESSAGE) || session?.key !== key) return;
+  let posted = true;
+  for (const part of splitChatMessage(`Bash AI: ${message}`)) {
+    const answer = (await tellTab(current.tabId, { op: 'post-chat', text: part }).catch(() => null)) as {
+      result?: string;
+    } | null;
+    if (answer?.result !== 'sent') posted = false;
+  }
+  const at = new Date().toISOString();
+  update(
+    s => ({
+      ...s,
+      lines: [
+        ...s.lines,
+        {
+          id: `c:${at}`,
+          speaker: 'Bash AI',
+          text: message,
+          at,
+          done: true,
+          polished: true,
+          chat: posted ? 'sent' : 'failed',
+        },
+      ],
+    }),
+    true,
+  );
 }
 
 function onRecorder(message: RecorderMessage): void {

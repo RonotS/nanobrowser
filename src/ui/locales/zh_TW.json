@@ -651,6 +651,8 @@
   "notes.status.saved": "已儲存",
   "notes.notice.failed": "無法在 Meet 聊天中發布通知：請告訴與會者你正在錄製。",
   "notes.empty": "還沒有人發言。",
+  "notes.chat.sent": "已發到聊天",
+  "notes.chat.failed": "無法發到聊天",
   "notes.stop": "停止並儲存",
   "notes.saving": "正在撰寫摘要並儲存…",
   "notes.saved": "已連同摘要儲存到 Command Center（Assistant → Bash AI 聊天）。",

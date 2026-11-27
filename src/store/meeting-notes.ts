@@ -23,6 +23,8 @@ export interface NotesLine {
   end?: number;
   /** Its turn was transcribed again (or kept as Meet heard it): not to be done twice. */
   polished?: boolean;
+  /** A message Bash AI posted in the Meet chat when someone asked (`c:` lines): whether it went. */
+  chat?: 'sent' | 'failed';
 }
 
 export interface NotesSession {

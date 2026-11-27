@@ -110,6 +110,11 @@ export function NotesView({ onAsk }: { onAsk: (ask: SideAsk) => void }) {
                     ) : (
                       line.text
                     )}
+                    {line.chat ? (
+                      <span className={`ml-1 text-[11px] ${line.chat === 'sent' ? 'text-nb-muted' : 'text-amber-500'}`}>
+                        · {line.chat === 'sent' ? t('notes.chat.sent') : t('notes.chat.failed')}
+                      </span>
+                    ) : null}
                   </Fragment>
                 ))}
               </li>
